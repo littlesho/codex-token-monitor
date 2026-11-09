@@ -5,7 +5,9 @@
         Title="Codex usage · Task details" Icon="Assets/AppIcon.ico" Width="350" Height="400" MinWidth="270" MinHeight="320"
         WindowStartupLocation="CenterOwner" WindowStyle="None" ResizeMode="CanResizeWithGrip" ShowInTaskbar="False"
         Background="{StaticResource BgBrush}" Foreground="{StaticResource TextBrush}"
-        UseLayoutRounding="True" SnapsToDevicePixels="True" TextOptions.TextFormattingMode="Display">
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        FontFamily="Segoe UI, Microsoft YaHei UI"
+        TextOptions.TextFormattingMode="Ideal" TextOptions.TextRenderingMode="Grayscale">
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="30" ResizeBorderThickness="8" CornerRadius="12" GlassFrameThickness="0"/>
     </shell:WindowChrome.WindowChrome>
@@ -31,8 +33,8 @@
                 <StackPanel><TextBlock Text="输出" FontSize="{DynamicResource FontSize_9}" Foreground="{StaticResource MutedBrush}"/><TextBlock x:Name="OutputValue" FontSize="{DynamicResource FontSize_15}" FontWeight="SemiBold" Margin="0,3,0,0" Foreground="{StaticResource PurpleBrush}" TextTrimming="CharacterEllipsis"/></StackPanel>
             </UniformGrid>
             <UniformGrid Grid.Row="4" Columns="2" Margin="0,3,0,0">
-                <StackPanel><TextBlock Text="预估 credits" FontSize="{DynamicResource FontSize_9}" Foreground="{StaticResource MutedBrush}"/><Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left" Height="21"><TextBlock x:Name="CreditsValue" FontSize="{DynamicResource FontSize_14}" FontWeight="SemiBold"/></Viewbox></StackPanel>
-                <StackPanel><TextBlock Text="API 等价值" FontSize="{DynamicResource FontSize_9}" Foreground="{StaticResource MutedBrush}"/><Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left" Height="21"><TextBlock x:Name="ApiValue" FontSize="{DynamicResource FontSize_14}" FontWeight="SemiBold"/></Viewbox></StackPanel>
+                <StackPanel><TextBlock Text="预估 credits" FontSize="{DynamicResource FontSize_9}" Foreground="{StaticResource MutedBrush}"/><TextBlock x:Name="CreditsValue" FontSize="{DynamicResource FontSize_14}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/></StackPanel>
+                <StackPanel><TextBlock Text="API 等价值" FontSize="{DynamicResource FontSize_9}" Foreground="{StaticResource MutedBrush}"/><TextBlock x:Name="ApiValue" FontSize="{DynamicResource FontSize_14}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/></StackPanel>
             </UniformGrid>
             <Border Grid.Row="5" Background="{StaticResource PanelAltBrush}" CornerRadius="6" Padding="6,2">
                 <Grid TextBlock.FontSize="{DynamicResource FontSize_9}">

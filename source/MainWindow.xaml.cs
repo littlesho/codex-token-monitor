@@ -57,6 +57,7 @@ public partial class MainWindow : Window
         _startMonitoring = startTimer;
         InitializeComponent();
         _expiryTimer.Tick += (_, _) => RefreshQuotaPresentation();
+        ApplyTextRendering();
         _geometrySaveDebounce.Tick += (_, _) => { _geometrySaveDebounce.Stop(); if (_startMonitoring && !_closed) SaveSettings(); };
         // Restore geometry only in real UI mode; previews/smoke tests stay deterministic.
         if (_startMonitoring)
@@ -73,6 +74,12 @@ public partial class MainWindow : Window
         Font150Item.Click += (_, _) => SetFontScale(1.5);
         Font175Item.Click += (_, _) => SetFontScale(1.75);
         Font200Item.Click += (_, _) => SetFontScale(2.0);
+        GrayscaleTextItem.Click += (_, _) =>
+        {
+            _settings.GrayscaleText = GrayscaleTextItem.IsChecked;
+            ApplyTextRendering();
+            if (_startMonitoring) SaveSettings();
+        };
         Topmost = _settings.Topmost;
         if (_startMonitoring && _settings.Left is { } left && _settings.Top is { } top
             && left >= SystemParameters.VirtualScreenLeft && left + Width <= SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth
@@ -150,6 +157,14 @@ public partial class MainWindow : Window
         _settings.Save();
     }
 
+    private void ApplyTextRendering()
+    {
+        var mode = _settings.GrayscaleText ? TextRenderingMode.Grayscale : TextRenderingMode.ClearType;
+        TextOptions.SetTextRenderingMode(this, mode);
+        if (_details is not null) TextOptions.SetTextRenderingMode(_details, mode);
+        GrayscaleTextItem.IsChecked = _settings.GrayscaleText;
+    }
+
     private void SetFontScale(double requested, bool persist = true)
     {
         var value = double.IsFinite(requested) ? requested : DefaultFontScale;
@@ -193,6 +208,7 @@ public partial class MainWindow : Window
             };
             details.MinWidth = MinWidth;
             details.MinHeight = MinHeight;
+            TextOptions.SetTextRenderingMode(details, TextOptions.GetTextRenderingMode(this));
             details.Closed += (_, _) =>
             {
                 _settings.DetailWidth = details.Width;

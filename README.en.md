@@ -1,4 +1,4 @@
-# Codex Token Monitor 1.3.8-ui.1
+# Codex Token Monitor 1.3.8-ui.2
 
 [中文说明](README.md)
 
@@ -25,6 +25,8 @@ The task selector expands with the window; long content scrolls. Requested
 and server-reported model names are shown in the widget when the local logs
 contain usable evidence; a missing server report remains unverified. The task
 summary includes a copy-model-evidence button.
+
+Text rendering (ui.2): Ideal font metrics, Segoe UI with Microsoft YaHei UI fallback, and grayscale antialiasing by default to avoid ClearType color fringes. Toggle `平滑字体（灰度抗锯齿）` off in the options menu to use ClearType instead. The detail view no longer scales metric text via a fixed-height Viewbox. The app declares PerMonitorV2 DPI awareness to reduce OS bitmap stretching on mixed-DPI displays. Actual multi-monitor behavior should be verified on Windows.
 
 ## Run
 

@@ -14,6 +14,8 @@ public sealed class MonitorSettings
     public double? DetailHeight { get; set; }
     // 1.0 = 100% of original WPF font sizes. Previous settings remain valid.
     public double FontScale { get; set; } = 1.25;
+    // Missing fields in older settings.json retain the smoother grayscale default.
+    public bool GrayscaleText { get; set; } = true;
     public double? Left { get; set; }
     public double? Top { get; set; }
     private static string SettingsPath => new MonitorPaths().SettingsPath;

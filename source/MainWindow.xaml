@@ -5,7 +5,9 @@
         Title="Codex Usage" Icon="Assets/AppIcon.ico" Width="350" Height="400" MinWidth="270" MinHeight="320"
         WindowStartupLocation="CenterScreen" WindowStyle="None" ResizeMode="CanResizeWithGrip"
         Background="{StaticResource BgBrush}" Foreground="{StaticResource TextBrush}"
-        UseLayoutRounding="True" SnapsToDevicePixels="True" TextOptions.TextFormattingMode="Display">
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        FontFamily="Segoe UI, Microsoft YaHei UI"
+        TextOptions.TextFormattingMode="Ideal" TextOptions.TextRenderingMode="Grayscale">
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="30" ResizeBorderThickness="8" CornerRadius="12" GlassFrameThickness="0"/>
     </shell:WindowChrome.WindowChrome>
@@ -31,6 +33,8 @@
                             <MenuItem x:Name="Font175Item" Header="175%" IsCheckable="True"/>
                             <MenuItem x:Name="Font200Item" Header="200%" IsCheckable="True"/>
                         </MenuItem>
+                        <MenuItem x:Name="GrayscaleTextItem" Header="平滑字体（灰度抗锯齿）" IsCheckable="True"
+                                  ToolTip="开启可减少彩色边缘，关闭后使用 ClearType 亚像素渲染"/>
                         <MenuItem x:Name="ResetLayoutItem" Header="恢复默认布局（窗口及字体）"/>
                         <MenuItem Header="Ctrl + / − 调整字体；Ctrl + 0 重置" IsEnabled="False"/>
                     </ContextMenu></Button.ContextMenu>

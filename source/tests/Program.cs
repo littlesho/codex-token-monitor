@@ -31,6 +31,13 @@ void Test(string name, Action run)
     try { Setup(name.Replace(' ', '-')); run(); results.Add(new { name, passed = true }); Console.WriteLine("PASS " + name); }
     catch (Exception ex) { failures++; results.Add(new { name, passed = false, error = ex.Message }); Console.WriteLine("FAIL " + name + ": " + ex.Message); }
 }
+Test("Legacy settings default to grayscale text; choice survives serialization", () =>
+{
+    var legacy = JsonSerializer.Deserialize<MonitorSettings>("{}");
+    Check(legacy is { GrayscaleText: true }, "legacy settings did not inherit smoothing default");
+    var saved = JsonSerializer.Deserialize<MonitorSettings>(JsonSerializer.Serialize(new MonitorSettings { GrayscaleText = false, FontScale = 2.0 }));
+    Check(saved is { GrayscaleText: false, FontScale: 2.0 }, "smoothing choice did not survive serialization");
+});
 Test("Astra standard and mini exact rates", () =>
 {
     var u = new TokenUsage { Input = 1000, Cached = 500, Output = 100, Reasoning = 40 };
