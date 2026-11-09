@@ -16,6 +16,18 @@ public sealed class MonitorSettings
     public double FontScale { get; set; } = 1.25;
     // Missing fields in older settings.json retain the smoother grayscale default.
     public bool GrayscaleText { get; set; } = true;
+    // Null means a legacy ui.2 settings file: respect the previous grayscale choice.
+    // Supported presets: Sharp / Natural / Gray / Soft.
+    public string? TextRenderPreset { get; set; }
+    public bool UseVariableFont { get; set; } = true;
+    public string EffectiveTextRenderPreset => TextRenderPreset switch
+    {
+        "Sharp" => "Sharp",
+        "Natural" => "Natural",
+        "Gray" => "Gray",
+        "Soft" => "Soft",
+        _ => GrayscaleText ? "Gray" : "Natural"
+    };
     public double? Left { get; set; }
     public double? Top { get; set; }
     private static string SettingsPath => new MonitorPaths().SettingsPath;

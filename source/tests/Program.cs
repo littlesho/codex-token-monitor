@@ -38,6 +38,18 @@ Test("Legacy settings default to grayscale text; choice survives serialization",
     var saved = JsonSerializer.Deserialize<MonitorSettings>(JsonSerializer.Serialize(new MonitorSettings { GrayscaleText = false, FontScale = 2.0 }));
     Check(saved is { GrayscaleText: false, FontScale: 2.0 }, "smoothing choice did not survive serialization");
 });
+Test("Font presets preserve legacy preferences and reject unknown values", () =>
+{
+    var oldGray = JsonSerializer.Deserialize<MonitorSettings>("{\\"GrayscaleText\\":true}");
+    var oldClearType = JsonSerializer.Deserialize<MonitorSettings>("{\\"GrayscaleText\\":false}");
+    Check(oldGray?.EffectiveTextRenderPreset == "Gray", "old grayscale preference lost");
+    Check(oldClearType?.EffectiveTextRenderPreset == "Natural", "old ClearType preference lost");
+    var settings = new MonitorSettings { TextRenderPreset = "Soft", UseVariableFont = false };
+    var roundTrip = JsonSerializer.Deserialize<MonitorSettings>(JsonSerializer.Serialize(settings));
+    Check(roundTrip?.EffectiveTextRenderPreset == "Soft" && roundTrip.UseVariableFont == false, "new preferences not persisted");
+    settings.TextRenderPreset = "unknown";
+    Check(settings.EffectiveTextRenderPreset == "Gray", "unknown style must fall back safely");
+});
 Test("Astra standard and mini exact rates", () =>
 {
     var u = new TokenUsage { Input = 1000, Cached = 500, Output = 100, Reasoning = 40 };

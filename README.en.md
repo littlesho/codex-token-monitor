@@ -1,4 +1,4 @@
-# Codex Token Monitor 1.3.8-ui.2
+# Codex Token Monitor 1.3.8-ui.3
 
 [中文说明](README.md)
 
@@ -27,6 +27,18 @@ contain usable evidence; a missing server report remains unverified. The task
 summary includes a copy-model-evidence button.
 
 Text rendering (ui.2): Ideal font metrics, Segoe UI with Microsoft YaHei UI fallback, and grayscale antialiasing by default to avoid ClearType color fringes. Toggle `平滑字体（灰度抗锯齿）` off in the options menu to use ClearType instead. The detail view no longer scales metric text via a fixed-height Viewbox. The app declares PerMonitorV2 DPI awareness to reduce OS bitmap stretching on mixed-DPI displays. Actual multi-monitor behavior should be verified on Windows.
+
+Text rendering (ui.3): Four switchable presets in the `...` menu:
+`Sharp` (ClearType + Display metrics + DIP font sizes rounded to physical
+pixels), `Natural` (ClearType + Ideal), `Gray` (grayscale + Ideal),
+and `Soft` (grayscale + Ideal + Animated hinting). Soft is an
+opt-in tradeoff; Microsoft's documentation warns animated hinting can
+reduce static text quality. Segoe UI Variable is preferred on Windows 11,
+with Segoe UI and Microsoft YaHei UI fallbacks. The menu also shows the
+actual window DPI and the independent font-scale preference. Existing
+`GrayscaleText` preferences migrate safely. No algorithm can create
+additional physical screen pixels; compare presets at native resolution
+and without browser/screenshot rescaling.
 
 ## Run
 

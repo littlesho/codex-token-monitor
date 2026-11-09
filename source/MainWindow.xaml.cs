@@ -58,7 +58,13 @@ public partial class MainWindow : Window
         InitializeComponent();
         _expiryTimer.Tick += (_, _) => RefreshQuotaPresentation();
         ApplyTextRendering();
-        _geometrySaveDebounce.Tick += (_, _) => { _geometrySaveDebounce.Stop(); if (_startMonitoring && !_closed) SaveSettings(); };
+        _geometrySaveDebounce.Tick += (_, _) =>
+        {
+            _geometrySaveDebounce.Stop();
+            UpdateFontResources();
+            if (_startMonitoring && !_closed) SaveSettings();
+        };
+        SourceInitialized += (_, _) => UpdateFontResources();
         // Restore geometry only in real UI mode; previews/smoke tests stay deterministic.
         if (_startMonitoring)
         {
@@ -74,9 +80,13 @@ public partial class MainWindow : Window
         Font150Item.Click += (_, _) => SetFontScale(1.5);
         Font175Item.Click += (_, _) => SetFontScale(1.75);
         Font200Item.Click += (_, _) => SetFontScale(2.0);
-        GrayscaleTextItem.Click += (_, _) =>
+        TextSharpItem.Click += (_, _) => SetTextPreset("Sharp");
+        TextNaturalItem.Click += (_, _) => SetTextPreset("Natural");
+        TextGrayItem.Click += (_, _) => SetTextPreset("Gray");
+        TextSoftItem.Click += (_, _) => SetTextPreset("Soft");
+        VariableFontItem.Click += (_, _) =>
         {
-            _settings.GrayscaleText = GrayscaleTextItem.IsChecked;
+            _settings.UseVariableFont = VariableFontItem.IsChecked;
             ApplyTextRendering();
             if (_startMonitoring) SaveSettings();
         };
@@ -95,7 +105,13 @@ public partial class MainWindow : Window
             RefreshQuotaPresentation();
             if (_startMonitoring) SaveSettings();
         };
-        MenuButton.Click += (_, _) => { MenuButton.ContextMenu.PlacementTarget = MenuButton; MenuButton.ContextMenu.IsOpen = true; };
+        MenuButton.Click += (_, _) =>
+        {
+            var scale = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+            DpiInfoItem.Header = $"显示缩放 {scale * 100:0}% / {scale * 96:0} DPI · 字体 {_fontScale * 100:0}%";
+            MenuButton.ContextMenu.PlacementTarget = MenuButton;
+            MenuButton.ContextMenu.IsOpen = true;
+        };
         CloseButton.Click += (_, _) => Close();
         RefreshButton.Click += async (_, _) => await ManualRefreshAsync();
         PreviewKeyDown += async (_, e) =>
@@ -157,21 +173,59 @@ public partial class MainWindow : Window
         _settings.Save();
     }
 
+    private void SetTextPreset(string preset)
+    {
+        _settings.TextRenderPreset = preset;
+        _settings.GrayscaleText = preset is "Gray" or "Soft"; // Compatibility with ui.2 settings.
+        ApplyTextRendering();
+        UpdateFontResources();
+        if (_startMonitoring) SaveSettings();
+    }
+
     private void ApplyTextRendering()
     {
-        var mode = _settings.GrayscaleText ? TextRenderingMode.Grayscale : TextRenderingMode.ClearType;
-        TextOptions.SetTextRenderingMode(this, mode);
-        if (_details is not null) TextOptions.SetTextRenderingMode(_details, mode);
-        GrayscaleTextItem.IsChecked = _settings.GrayscaleText;
+        var preset = _settings.EffectiveTextRenderPreset;
+        var rendering = preset is "Gray" or "Soft" ? TextRenderingMode.Grayscale : TextRenderingMode.ClearType;
+        var formatting = preset == "Sharp" ? TextFormattingMode.Display : TextFormattingMode.Ideal;
+        // Animated is an optional softer appearance, not a universally higher-quality mode.
+        var hinting = preset == "Soft" ? TextHintingMode.Animated : TextHintingMode.Fixed;
+        var family = new FontFamily(_settings.UseVariableFont
+            ? "Segoe UI Variable, Segoe UI, Microsoft YaHei UI"
+            : "Segoe UI, Microsoft YaHei UI");
+        foreach (Window window in new Window?[] { this, _details }.OfType<Window>())
+        {
+            TextOptions.SetTextRenderingMode(window, rendering);
+            TextOptions.SetTextFormattingMode(window, formatting);
+            TextOptions.SetTextHintingMode(window, hinting);
+            window.FontFamily = family;
+        }
+        TextSharpItem.IsChecked = preset == "Sharp";
+        TextNaturalItem.IsChecked = preset == "Natural";
+        TextGrayItem.IsChecked = preset == "Gray";
+        TextSoftItem.IsChecked = preset == "Soft";
+        VariableFontItem.IsChecked = _settings.UseVariableFont;
+    }
+
+    private void UpdateFontResources()
+    {
+        var pixelScale = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        if (!double.IsFinite(pixelScale) || pixelScale <= 0) pixelScale = 1;
+        // Only the pixel-aligned preset snaps font sizes to physical pixels.
+        foreach (var size in FontSizes)
+        {
+            var dips = size * _fontScale;
+            if (_settings.EffectiveTextRenderPreset == "Sharp")
+                dips = Math.Max(1, Math.Round(dips * pixelScale, MidpointRounding.AwayFromZero)) / pixelScale;
+            Application.Current.Resources[$"FontSize_{size}"] = dips;
+        }
+        FontSize = 11 * _fontScale;
     }
 
     private void SetFontScale(double requested, bool persist = true)
     {
         var value = double.IsFinite(requested) ? requested : DefaultFontScale;
         _fontScale = FontScales.OrderBy(scale => Math.Abs(scale - value)).First();
-        foreach (var size in FontSizes)
-            Application.Current.Resources[$"FontSize_{size}"] = (double)size * _fontScale;
-        FontSize = 11 * _fontScale;
+        UpdateFontResources();
         // Layout is auto-height with scrolling; also keep a sensible minimum area for 3 metrics.
         MinWidth = Math.Min(Math.Max(270, SystemParameters.WorkArea.Width), Math.Max(270, 260 * _fontScale));
         MinHeight = Math.Min(Math.Max(320, SystemParameters.WorkArea.Height), Math.Max(320, 300 * _fontScale));
@@ -209,6 +263,9 @@ public partial class MainWindow : Window
             details.MinWidth = MinWidth;
             details.MinHeight = MinHeight;
             TextOptions.SetTextRenderingMode(details, TextOptions.GetTextRenderingMode(this));
+            TextOptions.SetTextFormattingMode(details, TextOptions.GetTextFormattingMode(this));
+            TextOptions.SetTextHintingMode(details, TextOptions.GetTextHintingMode(this));
+            details.FontFamily = FontFamily;
             details.Closed += (_, _) =>
             {
                 _settings.DetailWidth = details.Width;
