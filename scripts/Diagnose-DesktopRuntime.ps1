@@ -82,11 +82,11 @@ $processRows = @(
         $image = [string]$process.ExecutablePath
         $commandLine = [string]$process.CommandLine
         $parents = @(Get-ParentNames $process $byPid)
-        $origin = if ($image -match '(?i)[\/]node_modules[\/]@openai[\/]codex') {
+        $origin = if ($image -match '(?i)[\\/]node_modules[\\/]@openai[\\/]codex') {
             'npm CLI runtime'
-        } elseif ($image -match '(?i)[\/]OpenAI[\/]Codex[\/]') {
+        } elseif ($image -match '(?i)[\\/]OpenAI[\\/]Codex[\\/]') {
             'Desktop bundle candidate'
-        } elseif ($image -match '(?i)[\/]WindowsApps[\/]') {
+        } elseif ($image -match '(?i)[\\/]WindowsApps[\\/]') {
             'packaged app candidate'
         } else {
             'not classified'
@@ -106,8 +106,8 @@ $processRows = @(
             Name      = [string]$process.Name
             Role      = $role
             Origin    = $origin
-            Version   = Read-Version $image
-            Image     = Format-SafePath $image
+            Version   = (Read-Version -FileName $image)
+            Image     = (Format-SafePath -Value $image)
             ParentNames = @($parents)
         }
     }
@@ -122,8 +122,8 @@ if ($env:LOCALAPPDATA) {
 }
 $bundles = @($bundleFiles | Sort-Object FullName -Unique | ForEach-Object {
     [pscustomobject]@{
-        Image = Format-SafePath $_.FullName
-        Version = Read-Version $_.FullName
+        Image = (Format-SafePath -Value $_.FullName)
+        Version = (Read-Version -FileName $_.FullName)
     }
 })
 $packages = @()
