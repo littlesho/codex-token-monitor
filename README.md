@@ -83,6 +83,18 @@
 
 目前的 Desktop 版本通常通过本地 stdio app-server 通道工作，外部程序无法直接订阅现有连接里每一次 `response.model`。要长期做到每次真实请求的模型展示，需在可控的未来启动过程中引入明确授权的运行时事件源（例如改造 Codex Rust 的响应处理层，再向本监视器只写入最小字段），或使用可控代理。**不建议对已经运行数小时的 Desktop 会话做 DLL 注入、替换 EXE、证书安装或网络中间人修改。**
 
+## Desktop 原始响应帧检测（只读实验）
+
+某些 Codex Desktop 版本的 SQLite TRACE 日志除了 `server reported model` 之外，还可能包含带有 `response.created` / `response.completed` 的 SSE/WebSocket 事件。这个实验只检查**日志级别和记录数量**，不返回模型名、响应 ID、请求内容、文件路径或令牌，避免把其他任务的流量误认为当前 HRTF 任务。
+
+```powershell
+pwsh -NoProfile -File .\scripts\Diagnose-DesktopFrames.ps1
+# 需要明确诊断某一会话时，可以用任务的 UUID：
+pwsh -NoProfile -File .\scripts\Diagnose-DesktopFrames.ps1 -ThreadId <任务 UUID>
+```
+
+扫描默认为每个库最近 5,000 条日志，支持 `-AsJson`、`-DbPath`、`-CodexHome` 和 `-MaxRows` 参数。脚本使用系统 Windows SQLite 以只读方式统计，另从 Desktop 日志中提取有限的 stdio/websocket 连接标签（不会显示原始日志行）。原始帧可能并未记录，或已被自动淘汰；计数为 0 并不证明服务器没有返回模型。即使计数大于 0，若缺少轮次与响应 ID 的严格关联，也只能标记为“未归属的模型帧候选”，不能当作实际模型证明。
+
 ## 模型名称校验
 
 “所选”读取当前轮次 `turn_context.model` 或 `thread_settings_applied.thread_settings.model`。“返回”仅接受明确的 `model_reroute` 事件或运行日志中的 `server reported model` 记录。通过 Windows 自带 SQLite 只读查询 Codex 根目录下的 `logs_2.sqlite` 与 `sqlite/logs_2.sqlite`，限定当前主任务、同一轮次及当前模型请求时间之后的最新可用回报。
