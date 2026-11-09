@@ -97,6 +97,14 @@ pwsh -NoProfile -File .\scripts\Diagnose-DesktopFrames.ps1 -ThreadId <任务 UUI
 
 **传输层 6 条候选细分（只读实验）**：运行 scripts/Diagnose-TransportCandidates.ps1，可以按固定的日志模块分别统计 `response.completed` 文本、model / response 键名、接收/发送方向、完成事件缺失的错误提示及已标注的 ThreadId。SQL 只返回整数统计，不输出原始日志正文、模型名称或响应 ID。由于错误消息也可能包含 response.completed，任何单项计数都不能作为服务器实际模型的证据；无 ThreadId 时不得将日志归因到 HRTF 会话。
 
+## Response ID 严格关联（实验，纯只读）
+
+在 Codex rollout 中出现 `token_usage_record` 时，会包含真实响应的 `response_id` 和 `turn_id`。新脚本 `scripts/Correlate-DesktopModels.ps1` 使用该记录与 SQLite 中解析出的 `response.completed.response.id` 做精确关联，只有来源与会话均满足安全条件才显示 `response.model`。不输出响应正文、响应 ID 或密钥，不修改运行中的 Codex 或数据库。若无可关联记录仍显示未验证。
+
+```powershell
+pwsh -NoProfile -File .\scripts\Correlate-DesktopModels.ps1 -ThreadId 01a1b04f-6977-71c0-8933-54dcb779f053 -MaxRows 20000
+```
+
 ## 模型名称校验
 
 “所选”读取当前轮次 `turn_context.model` 或 `thread_settings_applied.thread_settings.model`。“返回”仅接受明确的 `model_reroute` 事件或运行日志中的 `server reported model` 记录。通过 Windows 自带 SQLite 只读查询 Codex 根目录下的 `logs_2.sqlite` 与 `sqlite/logs_2.sqlite`，限定当前主任务、同一轮次及当前模型请求时间之后的最新可用回报。
