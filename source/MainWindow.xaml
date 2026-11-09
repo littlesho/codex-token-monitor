@@ -41,6 +41,9 @@
                         </MenuItem>
                         <MenuItem x:Name="VariableFontItem" Header="Windows 11 Segoe UI Variable 字体" IsCheckable="True" />
                         <MenuItem x:Name="DpiInfoItem" Header="显示缩放：检测中" IsEnabled="False" />
+                        <Separator/>
+                        <MenuItem x:Name="ModelDiagnosticItem" Header="诊断服务器模型来源（只读）"
+                                  ToolTip="仅统计本地日志的数量，不读取认证信息或上传任务内容"/>
                         <MenuItem x:Name="ResetLayoutItem" Header="恢复默认布局（窗口及字体）"/>
                         <MenuItem Header="Ctrl + / − 调整字体；Ctrl + 0 重置" IsEnabled="False"/>
                     </ContextMenu></Button.ContextMenu>

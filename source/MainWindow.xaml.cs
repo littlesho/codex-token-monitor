@@ -112,6 +112,25 @@ public partial class MainWindow : Window
             MenuButton.ContextMenu.PlacementTarget = MenuButton;
             MenuButton.ContextMenu.IsOpen = true;
         };
+        ModelDiagnosticItem.Click += async (_, _) =>
+        {
+            var selected = _currentData;
+            if (selected is null)
+            {
+                MessageBox.Show(this, "尚未加载 Codex 任务。可以先按 F5 刷新。", "服务器模型诊断",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            var diagnostics = await Task.Run(() => ModelResponseLogReader.Diagnose(
+                _parser.WatchRoot, selected.SessionId, selected.LatestTurnId,
+                selected.RequestedModel, selected.ModelRequestAt));
+            if (_closed) return;
+            var note = selected.ModelEvidence is null
+                ? "当前轮次：未验证。所选模型不是服务器返回模型的证据。"
+                : $"当前轮次已有校验：{selected.ModelCheck}（{selected.ModelEvidence.Source}）。";
+            MessageBox.Show(this, note + "\n\n" + diagnostics, "服务器模型诊断 · 本地只读",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        };
         CloseButton.Click += (_, _) => Close();
         RefreshButton.Click += async (_, _) => await ManualRefreshAsync();
         PreviewKeyDown += async (_, e) =>
@@ -525,7 +544,7 @@ public partial class MainWindow : Window
         DetailsButton.ToolTip = new ToolTip { Content = new TextBlock { Text = data.ModelCheckDetail, MaxWidth = 210, TextWrapping = TextWrapping.Wrap } };
         var returnedModel = data.ModelEvidence?.ReturnedModel;
         RoutingText.Text = string.IsNullOrWhiteSpace(returnedModel)
-            ? $"服务器返回模型：{data.ModelCheck}"
+            ? $"返回模型：{data.ModelCheck}（⋯ 可诊断）"
             : $"请求 {data.RequestedModel} → 返回 {returnedModel}";
         RoutingText.Foreground = (Brush)FindResource(data.ModelCheck == "名称不同" ? "PurpleBrush" : data.ModelCheck == "名称一致" ? "TealBrush" : "MutedBrush");
         RoutingText.ToolTip = BoundedTip(data.ModelCheckDetail);

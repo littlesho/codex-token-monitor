@@ -1,4 +1,4 @@
-# Codex Token Monitor 1.3.8-ui.3
+# Codex Token Monitor 1.3.8-ui.4
 
 [中文说明](README.md)
 
@@ -39,6 +39,8 @@ actual window DPI and the independent font-scale preference. Existing
 `GrayscaleText` preferences migrate safely. No algorithm can create
 additional physical screen pixels; compare presets at native resolution
 and without browser/screenshot rescaling.
+
+Model provenance diagnostics (ui.4): If the main widget shows `Unverified`, open `... → 诊断服务器模型来源（只读）`. This reports only the count of SQLite logs and server-model reports associated with the current thread, not log body text, prompts or credentials. It also looks for `logs_2.sqlite` under the Codex data root, `sqlite/`, `log/`, and `CODEX_SQLITE_HOME` when provided to the monitor. Custom SQLite or log directory paths can be supplied via `--model-log=...`. A missing server-model record cannot be guessed from the requested model; no automatic network interception or Codex configuration changes are performed.
 
 ## Run
 

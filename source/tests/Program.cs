@@ -333,6 +333,25 @@ if (OperatingSystem.IsWindows()) Test("Native SQLite reads are scoped and read-o
     Check(ModelResponseLogReader.ReadLatest(dbRoot, mainId, "turn-1", "gpt-6-astra", at.AddSeconds(5)) is null, "stale evidence read");
     Check(before.SequenceEqual(File.ReadAllBytes(dbPath)), "database modified");
 });
+if (OperatingSystem.IsWindows()) Test("Model log diagnosis and log-directory fallback are read-only", () =>
+{
+    var dbRoot = Directory.GetParent(Environment.GetEnvironmentVariable("CODEX_TOKEN_MONITOR_SESSION_ROOT")!)!.FullName;
+    var without = ModelResponseLogReader.Diagnose(dbRoot, mainId, "turn-1", "gpt-6-astra", at);
+    Check(without.Contains("没有找到"), "missing database not diagnosed");
+    var logDir = Path.Combine(dbRoot, "log");
+    Directory.CreateDirectory(logDir);
+    var dbPath = Path.Combine(logDir, "logs_2.sqlite");
+    var stamp = new DateTimeOffset(at).ToUnixTimeSeconds();
+    const string message = "turn{turn.id=turn-1 model=gpt-6-astra}: server reported model gpt-6-sol while requested model was gpt-6-astra";
+    NativeModelFixture.Create(dbPath, $"CREATE TABLE logs(id INTEGER PRIMARY KEY,ts INTEGER,ts_nanos INTEGER,target TEXT,thread_id TEXT,feedback_log_body TEXT);"
+        + $"INSERT INTO logs VALUES(1,{stamp},0,'codex_core::session','{mainId}','{message}');");
+    var before = File.ReadAllBytes(dbPath);
+    var found = ModelResponseLogReader.ReadLatest(dbRoot, mainId, "turn-1", "gpt-6-astra", at);
+    Check(found?.ReturnedModel == "gpt-6-sol", "new log/ candidate not found");
+    var diagnosed = ModelResponseLogReader.Diagnose(dbRoot, mainId, "turn-1", "gpt-6-astra", at);
+    Check(diagnosed.Contains("服务器模型报告 1 条") && diagnosed.Contains("当前任务日志 1 条"), "read-only diagnostics failed");
+    Check(before.SequenceEqual(File.ReadAllBytes(dbPath)), "diagnostics modified Codex logs");
+});
 Test("Quota display modes and stale snapshots", QuotaDisplayChecks.Run);
 Test("Account snapshots survive large appends and replacements", AccountSnapshotChecks.Run);
 Test("Paths remain portable and Codex data remains read-only", PathResolutionChecks.Run);
