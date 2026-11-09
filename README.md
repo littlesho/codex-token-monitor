@@ -105,6 +105,8 @@ pwsh -NoProfile -File .\scripts\Diagnose-DesktopFrames.ps1 -ThreadId <任务 UUI
 pwsh -NoProfile -File .\scripts\Correlate-DesktopModels.ps1 -ThreadId 01a1b04f-6977-71c0-8933-54dcb779f053 -MaxRows 20000
 ```
 
+**运行中 rollout 文件的共享读取（修复）**：Codex Desktop 仍在追加 JSONL 时，普通 `File.ReadLines` 可能因 Windows 共享模式不兼容而抛出占用异常。严格关联脚本改为只读 `FileStream` 并指定 `FileShare.ReadWrite | FileShare.Delete`，允许写入进程继续工作；如果 Codex 使用真正的独占锁，返回 `RolloutReadable=false` 和 `sharing_or_access_denied`，不会尝试终止进程、绕过锁或把其他会话的模型当成当前模型。合成测试同时覆盖并发追加与独占锁两种情况。
+
 ## 模型名称校验
 
 “所选”读取当前轮次 `turn_context.model` 或 `thread_settings_applied.thread_settings.model`。“返回”仅接受明确的 `model_reroute` 事件或运行日志中的 `server reported model` 记录。通过 Windows 自带 SQLite 只读查询 Codex 根目录下的 `logs_2.sqlite` 与 `sqlite/logs_2.sqlite`，限定当前主任务、同一轮次及当前模型请求时间之后的最新可用回报。

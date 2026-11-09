@@ -53,7 +53,16 @@ INSERT INTO logs VALUES(4,NULL,'log','Received message {"type":"response.complet
 INSERT INTO logs VALUES(5,NULL,'log','Received message {"type":"response.completed","response":{"id":"resp-other","model":"gpt-6.2-sol","status":"completed"}}');
 '@
     [DesktopCorrelationFixture]::Create($db,$sql)
-    $result= & (Join-Path $PSScriptRoot 'Correlate-DesktopModels.ps1') -ThreadId $thread -CodexHome $fixtureCodexHome -DbPath $db -AsJson | ConvertFrom-Json
+    # Hold a real append handle while the parser reads. File.ReadLines() with
+    # FileShare.Read fails this sharing case; a shared-read FileStream succeeds.
+    $liveWriter=[IO.FileStream]::new(
+        $rollout,[IO.FileMode]::Append,[IO.FileAccess]::Write,[IO.FileShare]::ReadWrite)
+    try {
+        $result= & (Join-Path $PSScriptRoot 'Correlate-DesktopModels.ps1') -ThreadId $thread -CodexHome $fixtureCodexHome -DbPath $db -AsJson | ConvertFrom-Json
+    } finally { $liveWriter.Dispose() }
+    if (-not $result.RolloutReadable -or $result.RolloutReadStatus -ne 'shared_read_ok') {
+        throw 'Concurrent append writer blocked the strict shared read'
+    }
     if (-not $result.RolloutFound -or $result.UsageRecords -ne 1 -or $result.DistinctResponseIds -ne 1) {
       throw "Synthetic records failed: usage=$($result.UsageRecords)"
     }
@@ -63,7 +72,19 @@ INSERT INTO logs VALUES(5,NULL,'log','Received message {"type":"response.complet
     if (@($result.Models).Count -ne 1 -or $result.Models[0].ServedModel -ne 'gpt-6.1-sol' -or $result.Models[0].Responses -ne 1 -or $result.CurrentTurnMatchedResponses -ne 0) {
       throw 'Synthetic model evidence was falsely attributed or discarded'
     }
-    Write-Output 'PASS strict response-id correlation; request echo, foreign thread and old turn excluded'
+    # Even FileShare.ReadWrite cannot bypass an exclusive file handle.
+    # In that case the tool must return a neutral status rather than throw
+    # or falsely display a model using data from unrelated tasks.
+    $exclusive=[IO.FileStream]::new(
+        $rollout,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+    try {
+        $blocked= & (Join-Path $PSScriptRoot 'Correlate-DesktopModels.ps1') -ThreadId $thread -CodexHome $fixtureCodexHome -DbPath $db -AsJson | ConvertFrom-Json
+    } finally { $exclusive.Dispose() }
+    if ($blocked.RolloutReadable -or $blocked.RolloutReadStatus -ne 'sharing_or_access_denied' -or
+        @($blocked.Models).Count -ne 0 -or $blocked.ResponseIdMatches -ne 0) {
+        throw 'An exclusive lock was not handled as unverified'
+    }
+    Write-Output 'PASS concurrent writer read + exclusive lock fallback + response-id attribution'
 } finally {
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
 }

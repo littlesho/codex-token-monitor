@@ -87,6 +87,8 @@ ORDER BY id DESC";
     private sealed class Report
     {
         public bool RolloutFound { get; set; }
+        public bool RolloutReadable { get; set; }
+        public string RolloutReadStatus { get; set; } = "not_attempted";
         public int RolloutFileCandidates { get; set; }
         public int UsageRecords { get; set; }
         public int DistinctResponseIds { get; set; }
@@ -177,8 +179,19 @@ ORDER BY id DESC";
         }
         result.RolloutFound=true;
         // Streaming input: never retain user prompts or raw model responses.
-        foreach(var line in File.ReadLines(paths[0],Encoding.UTF8))
+        try
         {
+            // Codex Desktop may keep the rollout open for append. File.ReadLines()
+            // requests FileShare.Read, which can conflict with that writer.
+            // This handle permits simultaneous writes/deletes and never takes a write lock.
+            using var rolloutStream = new FileStream(
+                paths[0], FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete, 65536, FileOptions.SequentialScan);
+            using var rolloutReader = new StreamReader(
+                rolloutStream, Encoding.UTF8, true, 65536);
+            string line;
+            while((line = rolloutReader.ReadLine()) != null)
+            {
             if(!line.Contains("token_usage_record",StringComparison.Ordinal) &&
                !line.Contains("task_started",StringComparison.Ordinal) &&
                !line.Contains("turn_context",StringComparison.Ordinal))continue;
@@ -213,7 +226,25 @@ ORDER BY id DESC";
                     if(turn.Length>0)latestTurn=turn;
                 }
             }
-            catch(JsonException) { }
+                catch(JsonException) { } // An actively appended final JSONL line may be incomplete.
+            }
+            result.RolloutReadable = true;
+            result.RolloutReadStatus = "shared_read_ok";
+        }
+        catch(Exception ex) when(ex is IOException || ex is UnauthorizedAccessException)
+        {
+            // No lock bypass, forced snapshot, process shutdown or privileged access.
+            // Discard any partially read IDs instead of deriving model claims.
+            responseTurns.Clear();
+            result.UsageRecords = 0;
+            result.DistinctResponseIds = 0;
+            result.LatestTurnKnown = false;
+            result.RolloutReadable = false;
+            result.RolloutReadStatus = "sharing_or_access_denied";
+            result.Interpretation =
+                "The selected rollout cannot be read with shared-read access. " +
+                "Codex may hold an exclusive handle. No model can be verified safely.";
+            return JsonSerializer.Serialize(result);
         }
         result.DistinctResponseIds=responseTurns.Count;
         result.LatestTurnKnown=latestTurn.Length>0;
@@ -319,7 +350,7 @@ $json=[CodexResponseJoinV1]::Check($CodexHome,$ThreadId,$DbPath,$MaxRows)
 if($AsJson) { Write-Output $json; return }
 $r=$json | ConvertFrom-Json
 Write-Output 'Codex Desktop response-ID join (read-only, strict, no raw content)'
-Write-Output "Rollout candidates: $($r.RolloutFileCandidates); usage records: $($r.UsageRecords); distinct response IDs: $($r.DistinctResponseIds)"
+Write-Output "Rollout candidates: $($r.RolloutFileCandidates); readable: $($r.RolloutReadable) ($($r.RolloutReadStatus)); usage records: $($r.UsageRecords); distinct response IDs: $($r.DistinctResponseIds)"
 Write-Output "DBs found: $($r.LogDatabasesFound); readable: $($r.ReadableLogDatabases); response texts: $($r.CompletionTextRows)"
 Write-Output "Parsed completions: $($r.ParsedCompletedFrames); exact response-ID matches: $($r.ResponseIdMatches); foreign-thread exclusions: $($r.ForeignThreadRejections)"
 Write-Output "Current turn known: $($r.LatestTurnKnown); current-turn matched responses: $($r.CurrentTurnMatchedResponses)"
