@@ -22,6 +22,9 @@ public partial class MainWindow : Window
     private readonly SessionParser _parser = new();
     private readonly DispatcherTimer _eventDebounce = new() { Interval = TimeSpan.FromMilliseconds(750) };
     private readonly DispatcherTimer _expiryTimer = new();
+    // Capture verified model evidence before Codex prunes its 1,000-row thread log partition.
+    private readonly DispatcherTimer _modelEvidenceTimer = new() { Interval = TimeSpan.FromSeconds(3) };
+    private bool _modelEvidenceReadInFlight;
     private AccountUsageSnapshot? _accountSnapshot;
     private readonly bool _startMonitoring;
     private FileSystemWatcher? _watcher;
@@ -57,6 +60,7 @@ public partial class MainWindow : Window
         _startMonitoring = startTimer;
         InitializeComponent();
         _expiryTimer.Tick += (_, _) => RefreshQuotaPresentation();
+        _modelEvidenceTimer.Tick += async (_, _) => await PollModelEvidenceAsync();
         ApplyTextRendering();
         _geometrySaveDebounce.Tick += (_, _) =>
         {
@@ -163,9 +167,13 @@ public partial class MainWindow : Window
         Loaded += async (_, _) =>
         {
             await RefreshAsync(true);
-            if (_startMonitoring && !_closed) StartFileWatcher();
+            if (_startMonitoring && !_closed)
+            {
+                StartFileWatcher();
+                _modelEvidenceTimer.Start();
+            }
         };
-        Closed += (_, _) => { _closed = true; _expiryTimer.Stop(); _geometrySaveDebounce.Stop(); StopFileWatcher(); _details?.Close(); if (_startMonitoring) SaveSettings(); };
+        Closed += (_, _) => { _closed = true; _modelEvidenceTimer.Stop(); _expiryTimer.Stop(); _geometrySaveDebounce.Stop(); StopFileWatcher(); _details?.Close(); if (_startMonitoring) SaveSettings(); };
     }
 
     private static double ValidDimension(double? proposed, double fallback, double minimum, double screenSize)
@@ -263,6 +271,41 @@ public partial class MainWindow : Window
         var index = Array.FindIndex(FontScales, scale => scale == _fontScale);
         SetFontScale(FontScales[Math.Clamp(index + direction, 0, FontScales.Length - 1)]);
     }
+    // Only query the small, read-only SQLite log index while the selected turn lacks evidence.
+    // The writer may flush later than the session, and high-volume logs roll over quickly.
+    private async Task PollModelEvidenceAsync()
+    {
+        if (_closed || _refreshing || _modelEvidenceReadInFlight || _currentData is not { ModelEvidence: null } data
+            || string.IsNullOrWhiteSpace(data.SessionId) || string.IsNullOrWhiteSpace(data.LatestTurnId)
+            || string.IsNullOrWhiteSpace(data.RequestedModel))
+            return;
+
+        var sessionId = data.SessionId;
+        var turnId = data.LatestTurnId;
+        var requested = data.RequestedModel;
+        var requestedAt = data.ModelRequestAt;
+        var selection = _selectionVersion;
+        _modelEvidenceReadInFlight = true;
+        try
+        {
+            var evidence = await Task.Run(() => ModelResponseLogReader.ReadLatest(
+                _parser.WatchRoot, sessionId, turnId, requested, requestedAt));
+            if (evidence is null || _closed || selection != _selectionVersion || _currentData is not { ModelEvidence: null } current
+                || !string.Equals(current.SessionId, sessionId, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(current.LatestTurnId, turnId, StringComparison.Ordinal)
+                || !string.Equals(current.RequestedModel, requested, StringComparison.OrdinalIgnoreCase)
+                || current.ModelRequestAt != requestedAt)
+                return;
+            current.ModelEvidence = evidence;
+            ApplyData(current);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or NotSupportedException)
+        {
+            // Best effort only: session usage display and Codex are unaffected.
+        }
+        finally { _modelEvidenceReadInFlight = false; }
+    }
+
     private async Task ManualRefreshAsync()
     {
         if (_startMonitoring && _watcher is null) StartFileWatcher();
@@ -537,6 +580,7 @@ public partial class MainWindow : Window
 
     private void ApplyData(SessionSummary data)
     {
+        ModelResponseLogReader.PreserveEvidenceIfSameTurn(data, _currentData);
         _currentData = data;
         DetailsButton.IsEnabled = true;
         DetailsButton.Content = $"任务概览 · 主模型{data.ModelCheck}";
@@ -547,7 +591,7 @@ public partial class MainWindow : Window
             ? $"返回模型：{data.ModelCheck}（⋯ 可诊断）"
             : $"请求 {data.RequestedModel} → 返回 {returnedModel}";
         RoutingText.Foreground = (Brush)FindResource(data.ModelCheck == "名称不同" ? "PurpleBrush" : data.ModelCheck == "名称一致" ? "TealBrush" : "MutedBrush");
-        RoutingText.ToolTip = BoundedTip(data.ModelCheckDetail);
+        RoutingText.ToolTip = BoundedTip(data.ModelCheckDetail + "\n若暂无证据，监控器会每 3 秒只读检查一次本地日志；仅在获取可信记录后保留在内存中。");
         var isNewSession = !string.Equals(_loadedSessionId, data.SessionId, StringComparison.Ordinal);
         if (isNewSession)
         {

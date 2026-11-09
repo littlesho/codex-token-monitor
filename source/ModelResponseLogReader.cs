@@ -93,6 +93,7 @@ public static class ModelResponseLogReader
             + "FROM logs WHERE thread_id=?1";
         long threadRows = 0, modelRows = 0, recentModelRows = 0;
         var readable = 0;
+        long maxSingleDatabaseThreadRows = 0;
         foreach (var path in existing)
         {
             IntPtr db = IntPtr.Zero, stmt = IntPtr.Zero;
@@ -112,7 +113,9 @@ public static class ModelResponseLogReader
                 if (sqlite3_step(stmt) != 100 /* SQLITE_ROW */)
                     continue;
                 readable++;
-                threadRows += sqlite3_column_int64(stmt, 0);
+                var databaseThreadRows = sqlite3_column_int64(stmt, 0);
+                threadRows += databaseThreadRows;
+                maxSingleDatabaseThreadRows = Math.Max(maxSingleDatabaseThreadRows, databaseThreadRows);
                 modelRows += sqlite3_column_int64(stmt, 1);
                 recentModelRows += sqlite3_column_int64(stmt, 2);
             }
@@ -128,6 +131,9 @@ public static class ModelResponseLogReader
 
         var summary = $"已发现 {existing.Length} 个候选日志数据库，其中 {readable} 个可读取。\n"
             + $"当前任务日志 {threadRows} 条，含服务端模型报告 {modelRows} 条，当前轮次请求时间之后 {recentModelRows} 条。\n\n";
+        if (maxSingleDatabaseThreadRows >= 1_000)
+            summary += "注意：至少一个日志数据库的当前任务已达到 Codex 每任务最多保留 1,000 条日志的上限。\n"
+                + "旧记录可能已被自动淘汰；之后生成的服务器模型报告可能再次被覆盖。\n\n";
         if (readable == 0)
             return summary + "日志数据库存在，但无法按预期结构读取（可能被锁定、权限不足或表结构变化）。\n"
                 + "可尝试 F5 刷新，并通过 --model-log 显式指定正确的 logs_2.sqlite。";
@@ -140,6 +146,24 @@ public static class ModelResponseLogReader
             return summary + "存在历史服务器模型报告，但在当前轮次的请求时间之后没有新报告。旧记录不能代表本轮。";
         return summary + "发现模型报告，但没有通过当前轮次 ID、请求模型、时间及日志来源的严格匹配。\n"
             + "可能是日志格式变化、轮次范围不一致；为了避免误判，不会显示猜测的模型名。";
+    }
+
+    // A verified record must not vanish from the UI just because the SQLite partition is pruned.
+    // Never reuse a previous turn's evidence for a different request or model.
+    public static bool PreserveEvidenceIfSameTurn(SessionSummary next, SessionSummary? previous)
+    {
+        var evidence = previous?.ModelEvidence;
+        if (next.ModelEvidence is not null || evidence is null || previous is null)
+            return false;
+        if (!string.Equals(next.SessionId, previous.SessionId, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(next.LatestTurnId, previous.LatestTurnId, StringComparison.Ordinal)
+            || !string.Equals(next.RequestedModel, previous.RequestedModel, StringComparison.OrdinalIgnoreCase)
+            || next.ModelRequestAt != previous.ModelRequestAt
+            || !string.Equals(evidence.TurnId, next.LatestTurnId, StringComparison.Ordinal)
+            || evidence.ObservedAt < next.ModelRequestAt)
+            return false;
+        next.ModelEvidence = evidence;
+        return true;
     }
 
     private static string[] DatabasePaths(string root)

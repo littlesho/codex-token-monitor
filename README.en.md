@@ -1,4 +1,4 @@
-# Codex Token Monitor 1.3.8-ui.4
+# Codex Token Monitor 1.3.8-ui.5
 
 [中文说明](README.md)
 
@@ -41,6 +41,8 @@ additional physical screen pixels; compare presets at native resolution
 and without browser/screenshot rescaling.
 
 Model provenance diagnostics (ui.4): If the main widget shows `Unverified`, open `... → 诊断服务器模型来源（只读）`. This reports only the count of SQLite logs and server-model reports associated with the current thread, not log body text, prompts or credentials. It also looks for `logs_2.sqlite` under the Codex data root, `sqlite/`, `log/`, and `CODEX_SQLITE_HOME` when provided to the monitor. Custom SQLite or log directory paths can be supplied via `--model-log=...`. A missing server-model record cannot be guessed from the requested model; no automatic network interception or Codex configuration changes are performed.
+
+Log rollover resilience (ui.5): Current Codex SQLite logging keeps at most 1,000 rows per thread, further limited by about 10 MiB of content. While the selected turn has no confirmed server-model record, the monitor checks the existing SQLite log read-only every 3 seconds and retains verified evidence for the same exact turn/request in process memory. It never carries evidence across turns, sessions or changed requested models. Diagnostic notes when the per-thread log cap is reached. This does not modify Codex logs or enable missing server headers and cannot restore deleted records. Periodic checks stop after evidence is found or when the monitor exits.
 
 ## Run
 

@@ -352,6 +352,31 @@ if (OperatingSystem.IsWindows()) Test("Model log diagnosis and log-directory fal
     Check(diagnosed.Contains("服务端模型报告 1 条") && diagnosed.Contains("当前任务日志 1 条"), "read-only diagnostics failed");
     Check(before.SequenceEqual(File.ReadAllBytes(dbPath)), "diagnostics modified Codex logs");
 });
+Test("Verified model evidence remains attached only to its original turn", () =>
+{
+    var evidence = new ModelResponseEvidence("gpt-6.1-sol", "gpt-6-sol", "turn-1", at, "runtime log");
+    var observed = new SessionSummary
+    {
+        SessionId = mainId, LatestTurnId = "turn-1", RequestedModel = "gpt-6.1-sol",
+        ModelRequestAt = at, ModelEvidence = evidence
+    };
+    SessionSummary Fresh(string id, string turn, string requested, DateTime requestAt) => new()
+    {
+        SessionId = id, LatestTurnId = turn, RequestedModel = requested, ModelRequestAt = requestAt
+    };
+    var same = Fresh(mainId, "turn-1", "gpt-6.1-sol", at);
+    Check(ModelResponseLogReader.PreserveEvidenceIfSameTurn(same, observed)
+        && same.ModelCheck == "名称不同", "verified evidence lost after database prune");
+    var newTurn = Fresh(mainId, "turn-2", "gpt-6.1-sol", at);
+    Check(!ModelResponseLogReader.PreserveEvidenceIfSameTurn(newTurn, observed) && newTurn.ModelEvidence is null,
+        "old evidence leaked into a new turn");
+    var newModel = Fresh(mainId, "turn-1", "gpt-6-sol", at);
+    Check(!ModelResponseLogReader.PreserveEvidenceIfSameTurn(newModel, observed), "old model evidence reused");
+    var newRequest = Fresh(mainId, "turn-1", "gpt-6.1-sol", at.AddSeconds(1));
+    Check(!ModelResponseLogReader.PreserveEvidenceIfSameTurn(newRequest, observed), "new request timestamp reused old model");
+    var otherSession = Fresh(agentId, "turn-1", "gpt-6.1-sol", at);
+    Check(!ModelResponseLogReader.PreserveEvidenceIfSameTurn(otherSession, observed), "cross-session evidence leaked");
+});
 Test("Quota display modes and stale snapshots", QuotaDisplayChecks.Run);
 Test("Account snapshots survive large appends and replacements", AccountSnapshotChecks.Run);
 Test("Paths remain portable and Codex data remains read-only", PathResolutionChecks.Run);
