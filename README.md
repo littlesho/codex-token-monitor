@@ -69,6 +69,20 @@
 
 **高频日志滚动保护（ui.5）**：Codex 公开源码中的本地 SQLite 日志每任务最多保留 1,000 条，额外受到约 10 MiB 的大小限制。对于运行时间长、日志输出频繁的任务，模型报告即使曾经出现也可能被自动淘汰。新版只在当前轮次尚无可信服务端模型证据时，每 3 秒从现有日志数据库执行一次只读查询；如果确实发现同一轮次及请求模型的报告，就仅在当前进程内存保留它，即使数据库随后滚动也不会马上丢失。切换任务、轮次或请求模型后不会沿用旧证据。诊断窗会在任务达到 1,000 条日志时注明保留上限。这不是网络抓包，不能恢复已经删除或从未写入的服务器返回模型，也不改变 Codex 自身日志大小或输出策略。
 
+## Codex Desktop 当前运行时检查（只读）
+
+如果独立 Codex CLI 模型校验已通过，但需要进一步确认 **Windows Desktop 的实际后端**，可在 Windows PowerShell 中从仓库根目录运行：
+
+```powershell
+.\scripts\Diagnose-DesktopRuntime.ps1
+# 如需机器可读输出：
+.\scripts\Diagnose-DesktopRuntime.ps1 -AsJson
+```
+
+该脚本只查询 Windows 进程元数据、常见的 Desktop 自带 codex.exe 位置、Store 包元信息和 npm CLI 启动器，**不读取或打印进程命令行正文**、不发送模型请求、不开启代理、不读取认证或聊天数据、不附加或重启 Codex 进程。默认隐藏用户目录路径，`-ShowFullPaths` 才显示完整路径。脚本帮助确认是否有独立的 app-server 进程，以及 npm CLI 与 Desktop 是否走不同的可执行文件；但**不能仅凭进程路径证明具体 HRTF 会话绑定哪个服务端模型**。
+
+目前的 Desktop 版本通常通过本地 stdio app-server 通道工作，外部程序无法直接订阅现有连接里每一次 `response.model`。要长期做到每次真实请求的模型展示，需在可控的未来启动过程中引入明确授权的运行时事件源（例如改造 Codex Rust 的响应处理层，再向本监视器只写入最小字段），或使用可控代理。**不建议对已经运行数小时的 Desktop 会话做 DLL 注入、替换 EXE、证书安装或网络中间人修改。**
+
 ## 模型名称校验
 
 “所选”读取当前轮次 `turn_context.model` 或 `thread_settings_applied.thread_settings.model`。“返回”仅接受明确的 `model_reroute` 事件或运行日志中的 `server reported model` 记录。通过 Windows 自带 SQLite 只读查询 Codex 根目录下的 `logs_2.sqlite` 与 `sqlite/logs_2.sqlite`，限定当前主任务、同一轮次及当前模型请求时间之后的最新可用回报。
