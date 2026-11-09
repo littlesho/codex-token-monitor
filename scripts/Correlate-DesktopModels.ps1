@@ -53,17 +53,33 @@ public static class CodexResponseJoinV1
     [DllImport("winsqlite3", CallingConvention = CallingConvention.Cdecl)]
     private static extern int sqlite3_column_bytes(IntPtr stmt, int col);
     [DllImport("winsqlite3", CallingConvention = CallingConvention.Cdecl)]
+    private static extern long sqlite3_column_int64(IntPtr stmt, int col);
+    [DllImport("winsqlite3", CallingConvention = CallingConvention.Cdecl)]
     private static extern int sqlite3_finalize(IntPtr stmt);
 
     private const string Sql = @"
-SELECT target, thread_id, feedback_log_body
-FROM (SELECT id,target,thread_id,feedback_log_body FROM logs ORDER BY id DESC LIMIT ?1)
+SELECT target, thread_id, feedback_log_body, ts, process_uuid
+FROM (SELECT id,target,thread_id,feedback_log_body,ts,process_uuid FROM logs ORDER BY id DESC LIMIT ?1)
 WHERE target IN ('log','tungstenite::protocol',
                  'codex_api::endpoint::responses_websocket',
                  'codex_http_client::transport')
  AND feedback_log_body LIKE '%response.completed%'
  AND length(feedback_log_body)<=2097152
 ORDER BY id DESC";
+    private const string LogWindowSql =
+        "SELECT COUNT(*),MIN(ts),MAX(ts) FROM (SELECT ts FROM logs ORDER BY id DESC LIMIT ?1)";
+    private static string Iso(long utcSeconds)
+    {
+        return utcSeconds>=946684800 && utcSeconds<=253402300799 ?
+            DateTimeOffset.FromUnixTimeSeconds(utcSeconds).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ") : "unavailable";
+    }
+    private sealed class LogWindow
+    {
+        public string Database { get; set; } = "";
+        public long RecentRows { get; set; }
+        public string OldestRetainedUtc { get; set; } = "";
+        public string NewestRetainedUtc { get; set; } = "";
+    }
     private static byte[] U(string str) => Encoding.UTF8.GetBytes(str + "\0");
     private static string GetString(IntPtr stmt, int col)
     {
@@ -101,6 +117,16 @@ ORDER BY id DESC";
         public int ResponseIdMatches { get; set; }
         public int ForeignThreadRejections { get; set; }
         public int CurrentTurnMatchedResponses { get; set; }
+        public string FirstUsageUtc { get; set; } = "unavailable";
+        public string LastUsageUtc { get; set; } = "unavailable";
+        public string FirstCompletedCandidateUtc { get; set; } = "unavailable";
+        public string LastCompletedCandidateUtc { get; set; } = "unavailable";
+        public int ParsedForeignThreadCompletions { get; set; }
+        public int ParsedThreadlessCompletions { get; set; }
+        public int DistinctTaggedThreads { get; set; }
+        public int DistinctProcessPartitions { get; set; }
+        public int CandidatesNearLatestUsage15Min { get; set; }
+        public List<LogWindow> RecentLogWindows { get; set; } = new List<LogWindow>();
         public List<ModelEvidence> Models { get; set; } = new List<ModelEvidence>();
         public string Interpretation { get; set; } = "";
     }
@@ -165,6 +191,11 @@ ORDER BY id DESC";
         var result=new Report();
         var responseTurns=new Dictionary<string,string>(StringComparer.Ordinal);
         string latestTurn="";
+        long firstUsageEpoch=long.MaxValue, lastUsageEpoch=0;
+        long firstCompletedEpoch=long.MaxValue, lastCompletedEpoch=0;
+        var taggedThreads=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var processPartitions=new HashSet<string>(StringComparer.Ordinal);
+
         var folder=Path.Combine(codexHome,"sessions");
         string[] paths=Directory.Exists(folder)
             ? Directory.EnumerateFiles(folder,"rollout-*"+threadId+".jsonl",SearchOption.AllDirectories).Take(3).ToArray()
@@ -209,6 +240,11 @@ ORDER BY id DESC";
                     if(!IdOk(rid)||turn.Length==0)continue;
                     result.UsageRecords++;
                     responseTurns[rid]=turn;
+                    if(DateTimeOffset.TryParse(Prop(e,"timestamp"),out var stamp))
+                    {
+                        var sec=stamp.ToUnixTimeSeconds();
+                        if(sec>0){firstUsageEpoch=Math.Min(firstUsageEpoch,sec);lastUsageEpoch=Math.Max(lastUsageEpoch,sec);}
+                    }
                     if(responseTurns.Count>20000)
                     {
                         result.Interpretation="More than 20,000 response IDs; bounded safety limit reached.";
@@ -248,6 +284,8 @@ ORDER BY id DESC";
         }
         result.DistinctResponseIds=responseTurns.Count;
         result.LatestTurnKnown=latestTurn.Length>0;
+        result.FirstUsageUtc=Iso(firstUsageEpoch);
+        result.LastUsageUtc=Iso(lastUsageEpoch);
         if(responseTurns.Count==0)
         {
             result.Interpretation="This rollout has no usable token_usage_record response IDs. Cannot safely join raw network logs to this task.";
@@ -278,12 +316,33 @@ ORDER BY id DESC";
                 if(sqlite3_prepare_v2(db,U(Sql),-1,out stmt,IntPtr.Zero)!=0)continue;
                 if(sqlite3_bind_int64(stmt,1,maxRows)!=0)continue;
                 result.ReadableLogDatabases++;
+                // The log has independent per-thread/per-process retention partitions.
+                // Read aggregate timestamp coverage only; no log payload leaves SQLite.
+                IntPtr coverage=IntPtr.Zero;
+                try
+                {
+                    if(sqlite3_prepare_v2(db,U(LogWindowSql),-1,out coverage,IntPtr.Zero)==0 &&
+                       sqlite3_bind_int64(coverage,1,maxRows)==0 &&
+                       sqlite3_step(coverage)==100)
+                    {
+                        result.RecentLogWindows.Add(new LogWindow
+                        {
+                            Database="Candidate "+result.LogDatabasesFound,
+                            RecentRows=sqlite3_column_int64(coverage,0),
+                            OldestRetainedUtc=Iso(sqlite3_column_int64(coverage,1)),
+                            NewestRetainedUtc=Iso(sqlite3_column_int64(coverage,2))
+                        });
+                    }
+                }
+                finally {if(coverage!=IntPtr.Zero)sqlite3_finalize(coverage);}
                 while(sqlite3_step(stmt)==100 /* ROW */)
                 {
                     result.CompletionTextRows++;
                     var target=GetString(stmt,0);
                     var logThread=GetString(stmt,1);
                     var body=GetString(stmt,2);
+                    var eventEpoch=sqlite3_column_int64(stmt,3);
+                    var procUuid=GetString(stmt,4);
                     // The generic log bridge can also record outgoing messages;
                     // never treat those as served-model evidence.
                     if((target=="log"||target=="tungstenite::protocol") &&
@@ -294,6 +353,21 @@ ORDER BY id DESC";
                         continue;
                     }
                     result.ParsedCompletedFrames++;
+                    if(eventEpoch>0)
+                    {
+                        firstCompletedEpoch=Math.Min(firstCompletedEpoch,eventEpoch);
+                        lastCompletedEpoch=Math.Max(lastCompletedEpoch,eventEpoch);
+                        if(lastUsageEpoch>0 && Math.Abs((double)(eventEpoch-lastUsageEpoch))<=900)
+                            result.CandidatesNearLatestUsage15Min++;
+                    }
+                    if(logThread.Length==0)result.ParsedThreadlessCompletions++;
+                    else
+                    {
+                        taggedThreads.Add(logThread);
+                        if(!string.Equals(logThread,threadId,StringComparison.OrdinalIgnoreCase))
+                            result.ParsedForeignThreadCompletions++;
+                    }
+                    if(procUuid.Length>0)processPartitions.Add(procUuid);
                     if(!responseTurns.TryGetValue(id,out var turnId))continue;
                     result.ResponseIdMatches++;
                     if(logThread.Length>0 && !string.Equals(logThread,threadId,StringComparison.OrdinalIgnoreCase))
@@ -337,6 +411,10 @@ ORDER BY id DESC";
                 if(db!=IntPtr.Zero)sqlite3_close(db);
             }
         }
+        result.FirstCompletedCandidateUtc=Iso(firstCompletedEpoch);
+        result.LastCompletedCandidateUtc=Iso(lastCompletedEpoch);
+        result.DistinctTaggedThreads=taggedThreads.Count;
+        result.DistinctProcessPartitions=processPartitions.Count;
         result.Models=byModel.Values.OrderBy(x=>x.ServedModel,StringComparer.Ordinal).ToList();
         result.Interpretation=result.Models.Count>0 ?
             "Exact response IDs from this rollout matched parsed completed network events. These are server-declared model names, not an attestation of weights. Current-turn attribution requires CurrentTurnMatchedResponses>0." :
@@ -354,6 +432,13 @@ Write-Output "Rollout candidates: $($r.RolloutFileCandidates); readable: $($r.Ro
 Write-Output "DBs found: $($r.LogDatabasesFound); readable: $($r.ReadableLogDatabases); response texts: $($r.CompletionTextRows)"
 Write-Output "Parsed completions: $($r.ParsedCompletedFrames); exact response-ID matches: $($r.ResponseIdMatches); foreign-thread exclusions: $($r.ForeignThreadRejections)"
 Write-Output "Current turn known: $($r.LatestTurnKnown); current-turn matched responses: $($r.CurrentTurnMatchedResponses)"
+Write-Output "HRTF usage records: $($r.FirstUsageUtc) to $($r.LastUsageUtc)"
+Write-Output "Completed candidates: $($r.FirstCompletedCandidateUtc) to $($r.LastCompletedCandidateUtc)"
+Write-Output "Candidate origins: $($r.ParsedForeignThreadCompletions) foreign-thread-tagged; $($r.ParsedThreadlessCompletions) threadless; $($r.DistinctTaggedThreads) distinct tagged threads; $($r.DistinctProcessPartitions) process partitions"
+Write-Output "Candidates within +/-15min of latest HRTF usage: $($r.CandidatesNearLatestUsage15Min)"
+if(@($r.RecentLogWindows).Count) {
+    $r.RecentLogWindows | Format-Table Database,RecentRows,OldestRetainedUtc,NewestRetainedUtc -AutoSize | Out-String | Write-Output
+}
 if(@($r.Models).Count) {
     $r.Models | Format-Table ServedModel,Responses,CurrentTurnResponses -AutoSize | Out-String | Write-Output
 } else {

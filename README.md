@@ -107,6 +107,8 @@ pwsh -NoProfile -File .\scripts\Correlate-DesktopModels.ps1 -ThreadId 01a1b04f-6
 
 **运行中 rollout 文件的共享读取（修复）**：Codex Desktop 仍在追加 JSONL 时，普通 `File.ReadLines` 可能因 Windows 共享模式不兼容而抛出占用异常。严格关联脚本改为只读 `FileStream` 并指定 `FileShare.ReadWrite | FileShare.Delete`，允许写入进程继续工作；如果 Codex 使用真正的独占锁，返回 `RolloutReadable=false` 和 `sharing_or_access_denied`，不会尝试终止进程、绕过锁或把其他会话的模型当成当前模型。合成测试同时覆盖并发追加与独占锁两种情况。
 
+**时间/来源覆盖诊断**：严格 Response ID 关联工具会额外输出目标会话 token_usage_record 的首末时间、最近完成事件候选的首末时间、SQLite 最近 N 条的保留时间窗，以及候选的其他会话标记数、无会话标记数和来源进程分区数量。这些数字用于判定为何关联为零；不会输出其他会话/进程的 ID 或响应正文。仅时间重叠不等于 Response ID 匹配，不能据此宣称 HRTF 真实模型。
+
 ## 模型名称校验
 
 “所选”读取当前轮次 `turn_context.model` 或 `thread_settings_applied.thread_settings.model`。“返回”仅接受明确的 `model_reroute` 事件或运行日志中的 `server reported model` 记录。通过 Windows 自带 SQLite 只读查询 Codex 根目录下的 `logs_2.sqlite` 与 `sqlite/logs_2.sqlite`，限定当前主任务、同一轮次及当前模型请求时间之后的最新可用回报。

@@ -38,7 +38,7 @@ try {
     $lines=@(
        '{"type":"session_meta","payload":{"id":"11111111-1111-4111-8111-111111111111"}}',
        '{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}',
-       '{"type":"token_usage_record","payload":{"thread_id":"11111111-1111-4111-8111-111111111111","turn_id":"turn-1","response_id":"resp-verified"}}',
+       '{"timestamp":"2026-11-09T14:00:00Z","type":"token_usage_record","payload":{"thread_id":"11111111-1111-4111-8111-111111111111","turn_id":"turn-1","response_id":"resp-verified"}}',
        '{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-2"}}',
        '{"type":"token_usage_record","payload":{"thread_id":"22222222-2222-4222-8222-222222222222","turn_id":"turn-2","response_id":"resp-foreign"}}'
     )
@@ -51,6 +51,9 @@ INSERT INTO logs VALUES(2,NULL,'log','Sending frame {"type":"response.completed"
 INSERT INTO logs VALUES(3,'other-thread','codex_api::endpoint::responses_websocket','{"type":"response.completed","response":{"id":"resp-verified","model":"gpt-6.2-sol","status":"completed"}}');
 INSERT INTO logs VALUES(4,NULL,'log','Received message {"type":"response.completed","response":{"id":"resp-foreign","model":"gpt-6.2-sol","status":"completed"}}');
 INSERT INTO logs VALUES(5,NULL,'log','Received message {"type":"response.completed","response":{"id":"resp-other","model":"gpt-6.2-sol","status":"completed"}}');
+ALTER TABLE logs ADD COLUMN ts INTEGER;
+ALTER TABLE logs ADD COLUMN process_uuid TEXT;
+UPDATE logs SET ts=1794232800,process_uuid='test-process-uuid';
 '@
     [DesktopCorrelationFixture]::Create($db,$sql)
     # Hold a real append handle while the parser reads. File.ReadLines() with
@@ -65,6 +68,13 @@ INSERT INTO logs VALUES(5,NULL,'log','Received message {"type":"response.complet
     }
     if (-not $result.RolloutFound -or $result.UsageRecords -ne 1 -or $result.DistinctResponseIds -ne 1) {
       throw "Synthetic records failed: usage=$($result.UsageRecords)"
+    }
+    if ($result.FirstUsageUtc -eq 'unavailable' -or @($result.RecentLogWindows).Count -ne 1 -or
+        $result.RecentLogWindows[0].RecentRows -ne 5 -or
+        $result.ParsedForeignThreadCompletions -ne 1 -or
+        $result.ParsedThreadlessCompletions -ne 3 -or
+        $result.DistinctProcessPartitions -ne 1) {
+        throw "Synthetic timestamp/origin coverage failed: $($result | ConvertTo-Json -Compress -Depth 5)"
     }
     if ($result.ResponseIdMatches -ne 2 -or $result.ForeignThreadRejections -ne 1) {
       throw "Expected one valid match and one foreign-thread exclusion. matches=$($result.ResponseIdMatches), excluded=$($result.ForeignThreadRejections)"
