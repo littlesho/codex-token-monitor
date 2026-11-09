@@ -29,6 +29,9 @@ jobs:
       - name: Synthetic transport candidate classification
         shell: pwsh
         run: ./scripts/Test-TransportCandidates.ps1
+      - name: Synthetic response-id correlation regression
+        shell: pwsh
+        run: ./scripts/Test-DesktopModelCorrelation.ps1
       - name: Build
         shell: pwsh
         run: ./scripts/Build.ps1
