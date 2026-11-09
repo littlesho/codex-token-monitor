@@ -29,8 +29,8 @@ public static class DesktopCorrelationFixture
 }
 '@
 $root=Join-Path $env:TEMP ('codex-response-join-fixture-'+[Guid]::NewGuid().ToString('N'))
-$home=Join-Path $root '.codex'
-$sessions=Join-Path $home 'sessions'
+$fixtureCodexHome=Join-Path $root '.codex'
+$sessions=Join-Path $fixtureCodexHome 'sessions'
 New-Item -ItemType Directory -Path $sessions -Force | Out-Null
 try {
     $thread='11111111-1111-4111-8111-111111111111'
@@ -43,7 +43,7 @@ try {
        '{"type":"token_usage_record","payload":{"thread_id":"22222222-2222-4222-8222-222222222222","turn_id":"turn-2","response_id":"resp-foreign"}}'
     )
     [IO.File]::WriteAllLines($rollout,[string[]]$lines)
-    $db=Join-Path $home 'logs_2.sqlite'
+    $db=Join-Path $fixtureCodexHome 'logs_2.sqlite'
     $sql=@'
 CREATE TABLE logs(id INTEGER PRIMARY KEY,thread_id TEXT,target TEXT,feedback_log_body TEXT);
 INSERT INTO logs VALUES(1,NULL,'log','Received message {"type":"response.completed","response":{"id":"resp-verified","model":"gpt-6.1-sol","status":"completed"}}');
@@ -53,7 +53,7 @@ INSERT INTO logs VALUES(4,NULL,'log','Received message {"type":"response.complet
 INSERT INTO logs VALUES(5,NULL,'log','Received message {"type":"response.completed","response":{"id":"resp-other","model":"gpt-6.2-sol","status":"completed"}}');
 '@
     [DesktopCorrelationFixture]::Create($db,$sql)
-    $result= & (Join-Path $PSScriptRoot 'Correlate-DesktopModels.ps1') -ThreadId $thread -CodexHome $home -DbPath $db -AsJson | ConvertFrom-Json
+    $result= & (Join-Path $PSScriptRoot 'Correlate-DesktopModels.ps1') -ThreadId $thread -CodexHome $fixtureCodexHome -DbPath $db -AsJson | ConvertFrom-Json
     if (-not $result.RolloutFound -or $result.UsageRecords -ne 1 -or $result.DistinctResponseIds -ne 1) {
       throw "Synthetic records failed: usage=$($result.UsageRecords)"
     }
