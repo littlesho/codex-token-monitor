@@ -40,8 +40,8 @@ Test("Legacy settings default to grayscale text; choice survives serialization",
 });
 Test("Font presets preserve legacy preferences and reject unknown values", () =>
 {
-    var oldGray = JsonSerializer.Deserialize<MonitorSettings>("{\\"GrayscaleText\\":true}");
-    var oldClearType = JsonSerializer.Deserialize<MonitorSettings>("{\\"GrayscaleText\\":false}");
+    var oldGray = JsonSerializer.Deserialize<MonitorSettings>("""{"GrayscaleText":true}""");
+    var oldClearType = JsonSerializer.Deserialize<MonitorSettings>("""{"GrayscaleText":false}""");
     Check(oldGray?.EffectiveTextRenderPreset == "Gray", "old grayscale preference lost");
     Check(oldClearType?.EffectiveTextRenderPreset == "Natural", "old ClearType preference lost");
     var settings = new MonitorSettings { TextRenderPreset = "Soft", UseVariableFont = false };
