@@ -31,6 +31,25 @@ void Test(string name, Action run)
     try { Setup(name.Replace(' ', '-')); run(); results.Add(new { name, passed = true }); Console.WriteLine("PASS " + name); }
     catch (Exception ex) { failures++; results.Add(new { name, passed = false, error = ex.Message }); Console.WriteLine("FAIL " + name + ": " + ex.Message); }
 }
+Test("Legacy settings default to grayscale text; choice survives serialization", () =>
+{
+    var legacy = JsonSerializer.Deserialize<MonitorSettings>("{}");
+    Check(legacy is { GrayscaleText: true }, "legacy settings did not inherit smoothing default");
+    var saved = JsonSerializer.Deserialize<MonitorSettings>(JsonSerializer.Serialize(new MonitorSettings { GrayscaleText = false, FontScale = 2.0 }));
+    Check(saved is { GrayscaleText: false, FontScale: 2.0 }, "smoothing choice did not survive serialization");
+});
+Test("Font presets preserve legacy preferences and reject unknown values", () =>
+{
+    var oldGray = JsonSerializer.Deserialize<MonitorSettings>("""{"GrayscaleText":true}""");
+    var oldClearType = JsonSerializer.Deserialize<MonitorSettings>("""{"GrayscaleText":false}""");
+    Check(oldGray?.EffectiveTextRenderPreset == "Gray", "old grayscale preference lost");
+    Check(oldClearType?.EffectiveTextRenderPreset == "Natural", "old ClearType preference lost");
+    var settings = new MonitorSettings { TextRenderPreset = "Soft", UseVariableFont = false };
+    var roundTrip = JsonSerializer.Deserialize<MonitorSettings>(JsonSerializer.Serialize(settings));
+    Check(roundTrip?.EffectiveTextRenderPreset == "Soft" && roundTrip.UseVariableFont == false, "new preferences not persisted");
+    settings.TextRenderPreset = "unknown";
+    Check(settings.EffectiveTextRenderPreset == "Gray", "unknown style must fall back safely");
+});
 Test("Astra standard and mini exact rates", () =>
 {
     var u = new TokenUsage { Input = 1000, Cached = 500, Output = 100, Reasoning = 40 };
@@ -313,6 +332,50 @@ if (OperatingSystem.IsWindows()) Test("Native SQLite reads are scoped and read-o
     Check(ModelResponseLogReader.ReadLatest(dbRoot, mainId, "turn-2", "gpt-6-astra", at) is null, "wrong turn read");
     Check(ModelResponseLogReader.ReadLatest(dbRoot, mainId, "turn-1", "gpt-6-astra", at.AddSeconds(5)) is null, "stale evidence read");
     Check(before.SequenceEqual(File.ReadAllBytes(dbPath)), "database modified");
+});
+if (OperatingSystem.IsWindows()) Test("Model log diagnosis and log-directory fallback are read-only", () =>
+{
+    var dbRoot = Directory.GetParent(Environment.GetEnvironmentVariable("CODEX_TOKEN_MONITOR_SESSION_ROOT")!)!.FullName;
+    var without = ModelResponseLogReader.Diagnose(dbRoot, mainId, "turn-1", "gpt-6-astra", at);
+    Check(without.Contains("没有找到"), "missing database not diagnosed");
+    var logDir = Path.Combine(dbRoot, "log");
+    Directory.CreateDirectory(logDir);
+    var dbPath = Path.Combine(logDir, "logs_2.sqlite");
+    var stamp = new DateTimeOffset(at).ToUnixTimeSeconds();
+    const string message = "turn{turn.id=turn-1 model=gpt-6-astra}: server reported model gpt-6-sol while requested model was gpt-6-astra";
+    NativeModelFixture.Create(dbPath, $"CREATE TABLE logs(id INTEGER PRIMARY KEY,ts INTEGER,ts_nanos INTEGER,target TEXT,thread_id TEXT,feedback_log_body TEXT);"
+        + $"INSERT INTO logs VALUES(1,{stamp},0,'codex_core::session','{mainId}','{message}');");
+    var before = File.ReadAllBytes(dbPath);
+    var found = ModelResponseLogReader.ReadLatest(dbRoot, mainId, "turn-1", "gpt-6-astra", at);
+    Check(found?.ReturnedModel == "gpt-6-sol", "new log/ candidate not found");
+    var diagnosed = ModelResponseLogReader.Diagnose(dbRoot, mainId, "turn-1", "gpt-6-astra", at);
+    Check(diagnosed.Contains("服务端模型报告 1 条") && diagnosed.Contains("当前任务日志 1 条"), "read-only diagnostics failed");
+    Check(before.SequenceEqual(File.ReadAllBytes(dbPath)), "diagnostics modified Codex logs");
+});
+Test("Verified model evidence remains attached only to its original turn", () =>
+{
+    var evidence = new ModelResponseEvidence("gpt-6.1-sol", "gpt-6-sol", "turn-1", at, "runtime log");
+    var observed = new SessionSummary
+    {
+        SessionId = mainId, LatestTurnId = "turn-1", RequestedModel = "gpt-6.1-sol",
+        ModelRequestAt = at, ModelEvidence = evidence
+    };
+    SessionSummary Fresh(string id, string turn, string requested, DateTime requestAt) => new()
+    {
+        SessionId = id, LatestTurnId = turn, RequestedModel = requested, ModelRequestAt = requestAt
+    };
+    var same = Fresh(mainId, "turn-1", "gpt-6.1-sol", at);
+    Check(ModelResponseLogReader.PreserveEvidenceIfSameTurn(same, observed)
+        && same.ModelCheck == "名称不同", "verified evidence lost after database prune");
+    var newTurn = Fresh(mainId, "turn-2", "gpt-6.1-sol", at);
+    Check(!ModelResponseLogReader.PreserveEvidenceIfSameTurn(newTurn, observed) && newTurn.ModelEvidence is null,
+        "old evidence leaked into a new turn");
+    var newModel = Fresh(mainId, "turn-1", "gpt-6-sol", at);
+    Check(!ModelResponseLogReader.PreserveEvidenceIfSameTurn(newModel, observed), "old model evidence reused");
+    var newRequest = Fresh(mainId, "turn-1", "gpt-6.1-sol", at.AddSeconds(1));
+    Check(!ModelResponseLogReader.PreserveEvidenceIfSameTurn(newRequest, observed), "new request timestamp reused old model");
+    var otherSession = Fresh(agentId, "turn-1", "gpt-6.1-sol", at);
+    Check(!ModelResponseLogReader.PreserveEvidenceIfSameTurn(otherSession, observed), "cross-session evidence leaked");
 });
 Test("Quota display modes and stale snapshots", QuotaDisplayChecks.Run);
 Test("Account snapshots survive large appends and replacements", AccountSnapshotChecks.Run);

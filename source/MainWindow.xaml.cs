@@ -22,6 +22,9 @@ public partial class MainWindow : Window
     private readonly SessionParser _parser = new();
     private readonly DispatcherTimer _eventDebounce = new() { Interval = TimeSpan.FromMilliseconds(750) };
     private readonly DispatcherTimer _expiryTimer = new();
+    // Capture verified model evidence before Codex prunes its 1,000-row thread log partition.
+    private readonly DispatcherTimer _modelEvidenceTimer = new() { Interval = TimeSpan.FromSeconds(3) };
+    private bool _modelEvidenceReadInFlight;
     private AccountUsageSnapshot? _accountSnapshot;
     private readonly bool _startMonitoring;
     private FileSystemWatcher? _watcher;
@@ -57,7 +60,15 @@ public partial class MainWindow : Window
         _startMonitoring = startTimer;
         InitializeComponent();
         _expiryTimer.Tick += (_, _) => RefreshQuotaPresentation();
-        _geometrySaveDebounce.Tick += (_, _) => { _geometrySaveDebounce.Stop(); if (_startMonitoring && !_closed) SaveSettings(); };
+        _modelEvidenceTimer.Tick += async (_, _) => await PollModelEvidenceAsync();
+        ApplyTextRendering();
+        _geometrySaveDebounce.Tick += (_, _) =>
+        {
+            _geometrySaveDebounce.Stop();
+            UpdateFontResources();
+            if (_startMonitoring && !_closed) SaveSettings();
+        };
+        SourceInitialized += (_, _) => UpdateFontResources();
         // Restore geometry only in real UI mode; previews/smoke tests stay deterministic.
         if (_startMonitoring)
         {
@@ -73,6 +84,16 @@ public partial class MainWindow : Window
         Font150Item.Click += (_, _) => SetFontScale(1.5);
         Font175Item.Click += (_, _) => SetFontScale(1.75);
         Font200Item.Click += (_, _) => SetFontScale(2.0);
+        TextSharpItem.Click += (_, _) => SetTextPreset("Sharp");
+        TextNaturalItem.Click += (_, _) => SetTextPreset("Natural");
+        TextGrayItem.Click += (_, _) => SetTextPreset("Gray");
+        TextSoftItem.Click += (_, _) => SetTextPreset("Soft");
+        VariableFontItem.Click += (_, _) =>
+        {
+            _settings.UseVariableFont = VariableFontItem.IsChecked;
+            ApplyTextRendering();
+            if (_startMonitoring) SaveSettings();
+        };
         Topmost = _settings.Topmost;
         if (_startMonitoring && _settings.Left is { } left && _settings.Top is { } top
             && left >= SystemParameters.VirtualScreenLeft && left + Width <= SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth
@@ -88,7 +109,32 @@ public partial class MainWindow : Window
             RefreshQuotaPresentation();
             if (_startMonitoring) SaveSettings();
         };
-        MenuButton.Click += (_, _) => { MenuButton.ContextMenu.PlacementTarget = MenuButton; MenuButton.ContextMenu.IsOpen = true; };
+        MenuButton.Click += (_, _) =>
+        {
+            var scale = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+            DpiInfoItem.Header = $"显示缩放 {scale * 100:0}% / {scale * 96:0} DPI · 字体 {_fontScale * 100:0}%";
+            MenuButton.ContextMenu.PlacementTarget = MenuButton;
+            MenuButton.ContextMenu.IsOpen = true;
+        };
+        ModelDiagnosticItem.Click += async (_, _) =>
+        {
+            var selected = _currentData;
+            if (selected is null)
+            {
+                MessageBox.Show(this, "尚未加载 Codex 任务。可以先按 F5 刷新。", "服务器模型诊断",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            var diagnostics = await Task.Run(() => ModelResponseLogReader.Diagnose(
+                _parser.WatchRoot, selected.SessionId, selected.LatestTurnId,
+                selected.RequestedModel, selected.ModelRequestAt));
+            if (_closed) return;
+            var note = selected.ModelEvidence is null
+                ? "当前轮次：未验证。所选模型不是服务器返回模型的证据。"
+                : $"当前轮次已有校验：{selected.ModelCheck}（{selected.ModelEvidence.Source}）。";
+            MessageBox.Show(this, note + "\n\n" + diagnostics, "服务器模型诊断 · 本地只读",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        };
         CloseButton.Click += (_, _) => Close();
         RefreshButton.Click += async (_, _) => await ManualRefreshAsync();
         PreviewKeyDown += async (_, e) =>
@@ -121,9 +167,13 @@ public partial class MainWindow : Window
         Loaded += async (_, _) =>
         {
             await RefreshAsync(true);
-            if (_startMonitoring && !_closed) StartFileWatcher();
+            if (_startMonitoring && !_closed)
+            {
+                StartFileWatcher();
+                _modelEvidenceTimer.Start();
+            }
         };
-        Closed += (_, _) => { _closed = true; _expiryTimer.Stop(); _geometrySaveDebounce.Stop(); StopFileWatcher(); _details?.Close(); if (_startMonitoring) SaveSettings(); };
+        Closed += (_, _) => { _closed = true; _modelEvidenceTimer.Stop(); _expiryTimer.Stop(); _geometrySaveDebounce.Stop(); StopFileWatcher(); _details?.Close(); if (_startMonitoring) SaveSettings(); };
     }
 
     private static double ValidDimension(double? proposed, double fallback, double minimum, double screenSize)
@@ -150,13 +200,59 @@ public partial class MainWindow : Window
         _settings.Save();
     }
 
+    private void SetTextPreset(string preset)
+    {
+        _settings.TextRenderPreset = preset;
+        _settings.GrayscaleText = preset is "Gray" or "Soft"; // Compatibility with ui.2 settings.
+        ApplyTextRendering();
+        UpdateFontResources();
+        if (_startMonitoring) SaveSettings();
+    }
+
+    private void ApplyTextRendering()
+    {
+        var preset = _settings.EffectiveTextRenderPreset;
+        var rendering = preset is "Gray" or "Soft" ? TextRenderingMode.Grayscale : TextRenderingMode.ClearType;
+        var formatting = preset == "Sharp" ? TextFormattingMode.Display : TextFormattingMode.Ideal;
+        // Animated is an optional softer appearance, not a universally higher-quality mode.
+        var hinting = preset == "Soft" ? TextHintingMode.Animated : TextHintingMode.Fixed;
+        var family = new FontFamily(_settings.UseVariableFont
+            ? "Segoe UI Variable, Segoe UI, Microsoft YaHei UI"
+            : "Segoe UI, Microsoft YaHei UI");
+        foreach (Window window in new Window?[] { this, _details }.OfType<Window>())
+        {
+            TextOptions.SetTextRenderingMode(window, rendering);
+            TextOptions.SetTextFormattingMode(window, formatting);
+            TextOptions.SetTextHintingMode(window, hinting);
+            window.FontFamily = family;
+        }
+        TextSharpItem.IsChecked = preset == "Sharp";
+        TextNaturalItem.IsChecked = preset == "Natural";
+        TextGrayItem.IsChecked = preset == "Gray";
+        TextSoftItem.IsChecked = preset == "Soft";
+        VariableFontItem.IsChecked = _settings.UseVariableFont;
+    }
+
+    private void UpdateFontResources()
+    {
+        var pixelScale = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        if (!double.IsFinite(pixelScale) || pixelScale <= 0) pixelScale = 1;
+        // Only the pixel-aligned preset snaps font sizes to physical pixels.
+        foreach (var size in FontSizes)
+        {
+            var dips = size * _fontScale;
+            if (_settings.EffectiveTextRenderPreset == "Sharp")
+                dips = Math.Max(1, Math.Round(dips * pixelScale, MidpointRounding.AwayFromZero)) / pixelScale;
+            Application.Current.Resources[$"FontSize_{size}"] = dips;
+        }
+        FontSize = 11 * _fontScale;
+    }
+
     private void SetFontScale(double requested, bool persist = true)
     {
         var value = double.IsFinite(requested) ? requested : DefaultFontScale;
         _fontScale = FontScales.OrderBy(scale => Math.Abs(scale - value)).First();
-        foreach (var size in FontSizes)
-            Application.Current.Resources[$"FontSize_{size}"] = (double)size * _fontScale;
-        FontSize = 11 * _fontScale;
+        UpdateFontResources();
         // Layout is auto-height with scrolling; also keep a sensible minimum area for 3 metrics.
         MinWidth = Math.Min(Math.Max(270, SystemParameters.WorkArea.Width), Math.Max(270, 260 * _fontScale));
         MinHeight = Math.Min(Math.Max(320, SystemParameters.WorkArea.Height), Math.Max(320, 300 * _fontScale));
@@ -175,6 +271,41 @@ public partial class MainWindow : Window
         var index = Array.FindIndex(FontScales, scale => scale == _fontScale);
         SetFontScale(FontScales[Math.Clamp(index + direction, 0, FontScales.Length - 1)]);
     }
+    // Only query the small, read-only SQLite log index while the selected turn lacks evidence.
+    // The writer may flush later than the session, and high-volume logs roll over quickly.
+    private async Task PollModelEvidenceAsync()
+    {
+        if (_closed || _refreshing || _modelEvidenceReadInFlight || _currentData is not { ModelEvidence: null } data
+            || string.IsNullOrWhiteSpace(data.SessionId) || string.IsNullOrWhiteSpace(data.LatestTurnId)
+            || string.IsNullOrWhiteSpace(data.RequestedModel))
+            return;
+
+        var sessionId = data.SessionId;
+        var turnId = data.LatestTurnId;
+        var requested = data.RequestedModel;
+        var requestedAt = data.ModelRequestAt;
+        var selection = _selectionVersion;
+        _modelEvidenceReadInFlight = true;
+        try
+        {
+            var evidence = await Task.Run(() => ModelResponseLogReader.ReadLatest(
+                _parser.WatchRoot, sessionId, turnId, requested, requestedAt));
+            if (evidence is null || _closed || selection != _selectionVersion || _currentData is not { ModelEvidence: null } current
+                || !string.Equals(current.SessionId, sessionId, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(current.LatestTurnId, turnId, StringComparison.Ordinal)
+                || !string.Equals(current.RequestedModel, requested, StringComparison.OrdinalIgnoreCase)
+                || current.ModelRequestAt != requestedAt)
+                return;
+            current.ModelEvidence = evidence;
+            ApplyData(current);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or NotSupportedException)
+        {
+            // Best effort only: session usage display and Codex are unaffected.
+        }
+        finally { _modelEvidenceReadInFlight = false; }
+    }
+
     private async Task ManualRefreshAsync()
     {
         if (_startMonitoring && _watcher is null) StartFileWatcher();
@@ -193,6 +324,10 @@ public partial class MainWindow : Window
             };
             details.MinWidth = MinWidth;
             details.MinHeight = MinHeight;
+            TextOptions.SetTextRenderingMode(details, TextOptions.GetTextRenderingMode(this));
+            TextOptions.SetTextFormattingMode(details, TextOptions.GetTextFormattingMode(this));
+            TextOptions.SetTextHintingMode(details, TextOptions.GetTextHintingMode(this));
+            details.FontFamily = FontFamily;
             details.Closed += (_, _) =>
             {
                 _settings.DetailWidth = details.Width;
@@ -445,6 +580,7 @@ public partial class MainWindow : Window
 
     private void ApplyData(SessionSummary data)
     {
+        ModelResponseLogReader.PreserveEvidenceIfSameTurn(data, _currentData);
         _currentData = data;
         DetailsButton.IsEnabled = true;
         DetailsButton.Content = $"任务概览 · 主模型{data.ModelCheck}";
@@ -452,10 +588,10 @@ public partial class MainWindow : Window
         DetailsButton.ToolTip = new ToolTip { Content = new TextBlock { Text = data.ModelCheckDetail, MaxWidth = 210, TextWrapping = TextWrapping.Wrap } };
         var returnedModel = data.ModelEvidence?.ReturnedModel;
         RoutingText.Text = string.IsNullOrWhiteSpace(returnedModel)
-            ? $"服务器返回模型：{data.ModelCheck}"
+            ? $"返回模型：{data.ModelCheck}（⋯ 可诊断）"
             : $"请求 {data.RequestedModel} → 返回 {returnedModel}";
         RoutingText.Foreground = (Brush)FindResource(data.ModelCheck == "名称不同" ? "PurpleBrush" : data.ModelCheck == "名称一致" ? "TealBrush" : "MutedBrush");
-        RoutingText.ToolTip = BoundedTip(data.ModelCheckDetail);
+        RoutingText.ToolTip = BoundedTip(data.ModelCheckDetail + "\n若暂无证据，监控器会每 3 秒只读检查一次本地日志；仅在获取可信记录后保留在内存中。");
         var isNewSession = !string.Equals(_loadedSessionId, data.SessionId, StringComparison.Ordinal);
         if (isNewSession)
         {

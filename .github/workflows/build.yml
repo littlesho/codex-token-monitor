@@ -16,6 +16,22 @@ jobs:
       - name: Check public file list
         shell: pwsh
         run: ./scripts/Verify-PublicFiles.ps1
+      - name: Read-only Desktop runtime inventory smoke check
+        shell: pwsh
+        run: |
+          $info = ./scripts/Diagnose-DesktopRuntime.ps1 -AsJson | ConvertFrom-Json
+          if (-not $info.ObservedAtUtc -or $null -eq $info.Processes) { throw 'Desktop inventory returned invalid data' }
+      - name: Read-only Desktop frame diagnostics smoke check
+        shell: pwsh
+        run: |
+          $result = ./scripts/Diagnose-DesktopFrames.ps1 -AsJson | ConvertFrom-Json
+          if (-not $result.ObservedAtUtc -or $null -eq $result.ExistingDatabases) { throw 'Frame diagnostics returned invalid data' }
+      - name: Synthetic transport candidate classification
+        shell: pwsh
+        run: ./scripts/Test-TransportCandidates.ps1
+      - name: Synthetic response-id correlation regression
+        shell: pwsh
+        run: ./scripts/Test-DesktopModelCorrelation.ps1
       - name: Build
         shell: pwsh
         run: ./scripts/Build.ps1

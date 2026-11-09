@@ -1,4 +1,4 @@
-# Codex Token Monitor 1.3.8-ui.1
+# Codex Token Monitor 1.3.8-ui.5
 
 [English](README.en.md) · 独立社区工具 · MIT License
 
@@ -53,6 +53,8 @@
 
 **本分支的窗口与字体增强**：主界面和任务概览默认均为 350 × 400 逻辑像素，可拖动窗口边缘自由调整大小；窗口尺寸会自动保存，任务概览也会记住独立尺寸。顶部 `⋯ → 字体大小` 可以选 100% / 125% / 150% / 175% / 200%（默认 125%），也可通过 `Ctrl +`、`Ctrl -` 和 `Ctrl + 0` 调整或复位。窗口大小与字体大小互不绑定；字体增大后行高自适应，内容过多时可滚动。任务选择器随窗口变宽，搜索结果区域更高；主窗口直接显示请求与服务器返回的模型名称，并可在任务概览中一键复制校验结果。顶部菜单可恢复默认窗口与字体设置。旧版设置文件自动兼容。
 
+**字体渲染预设（ui.3）**：`⋯ → 字体渲染` 可以即时对比：①「屏幕锐利」ClearType + Display 像素对齐（更适合多数 RGB LCD 实屏，但截图可能有彩边）；②「自然字形」ClearType + Ideal；③「无彩边」灰度 + Ideal；④「柔和灰度」灰度 + Ideal + Animated 提示（边缘可能更柔和，也可能略模糊；需自行比较）。旧版 `GrayscaleText` 设置会迁移为对应预设。`Windows 11 Segoe UI Variable 字体`开关默认启用，不支持时回退到 Segoe UI / 微软雅黑 UI。菜单底部显示当前 DPI / Windows 显示缩放与本软件字体倍率，以免混淆。屏幕无足够物理像素时，抗锯齿不能消除所有台阶。保留 ui.2 的 PerMonitorV2 和详情页 Viewbox 修正。
+
 模型菜单可切换 Main / Agents 的模型统计，任务菜单默认显示最近 5 个任务；展开后可按名称或编号搜索本地历史任务。长标题省略显示，悬停查看完整名称。关闭搜索后释放完整搜索列表，只保留最近任务。
 
 `Refresh` 或 F5 手动刷新，并尝试恢复断开的日志监听；`任务概览` 查看关键汇总及模型校验；顶部 `⋯` 提供置顶和“显示剩余额度”开关，标题栏可拖动。概览点击“返回”或按 Esc 关闭，预估 credits 的悬停提示显示主任务/子代理费用拆分。
@@ -62,6 +64,50 @@
 不提供导出功能，不创建独立的用量历史文件，不再保留每轮提示摘要。内存只保留所选任务及其子代理的统计记录、增量读取状态和必要元数据，切换任务后释放原任务的解析缓存；无任务标题时只保留一段最多约 100 字符的首条消息作为标题备用。
 
 程序通过文件变更事件更新，750ms 合并突发写入，没有空闲日志轮询。快照陈旧或到期时仅定时更新界面。默认读取 `%USERPROFILE%\.codex\sessions` 与 `session_index.jsonl`，设置 `CODEX_HOME` 时读取该目录。窗口位置、主/详情窗口尺寸、字体倍率、置顶和额度显示偏好保存在 `%LOCALAPPDATA%\CodexTokenMonitor\settings.json`。程序不修改 Codex 日志、配置，不读取认证文件，也不发起网络请求。
+
+**模型来源诊断（ui.4）**：当主界面显示“返回模型：未验证”时，点击顶部 `⋯ → 诊断服务器模型来源（只读）`。诊断只汇总当前任务在日志数据库中的记录数量、模型报告数量以及匹配当前轮次时间的数量，不读取认证文件，不上传或显示原始任务日志。自动检查 CODEX_SQLITE_HOME（设置在监控器进程环境中时）、默认 Codex 数据目录以及其 `sqlite/`、`log/` 中的 `logs_2.sqlite`。若使用自定义 sqlite_home / log_dir，请用 `--model-log=完整路径` 指定日志库。即使 Codex 持续运行，若服务端不提供模型标识或客户端未保留 INFO 日志，也无法保证显示返回模型；绝不使用请求模型假冒服务端响应。修复不修改 Codex 的日志配置。
+
+**高频日志滚动保护（ui.5）**：Codex 公开源码中的本地 SQLite 日志每任务最多保留 1,000 条，额外受到约 10 MiB 的大小限制。对于运行时间长、日志输出频繁的任务，模型报告即使曾经出现也可能被自动淘汰。新版只在当前轮次尚无可信服务端模型证据时，每 3 秒从现有日志数据库执行一次只读查询；如果确实发现同一轮次及请求模型的报告，就仅在当前进程内存保留它，即使数据库随后滚动也不会马上丢失。切换任务、轮次或请求模型后不会沿用旧证据。诊断窗会在任务达到 1,000 条日志时注明保留上限。这不是网络抓包，不能恢复已经删除或从未写入的服务器返回模型，也不改变 Codex 自身日志大小或输出策略。
+
+## Codex Desktop 当前运行时检查（只读）
+
+如果独立 Codex CLI 模型校验已通过，但需要进一步确认 **Windows Desktop 的实际后端**，可在 Windows PowerShell 中从仓库根目录运行：
+
+```powershell
+.\scripts\Diagnose-DesktopRuntime.ps1
+# 如需机器可读输出：
+.\scripts\Diagnose-DesktopRuntime.ps1 -AsJson
+```
+
+该脚本只查询 Windows 进程元数据、常见的 Desktop 自带 codex.exe 位置、Store 包元信息和 npm CLI 启动器，**不读取或打印进程命令行正文**、不发送模型请求、不开启代理、不读取认证或聊天数据、不附加或重启 Codex 进程。默认隐藏用户目录路径，`-ShowFullPaths` 才显示完整路径。脚本帮助确认是否有独立的 app-server 进程，以及 npm CLI 与 Desktop 是否走不同的可执行文件；但**不能仅凭进程路径证明具体 HRTF 会话绑定哪个服务端模型**。
+
+目前的 Desktop 版本通常通过本地 stdio app-server 通道工作，外部程序无法直接订阅现有连接里每一次 `response.model`。要长期做到每次真实请求的模型展示，需在可控的未来启动过程中引入明确授权的运行时事件源（例如改造 Codex Rust 的响应处理层，再向本监视器只写入最小字段），或使用可控代理。**不建议对已经运行数小时的 Desktop 会话做 DLL 注入、替换 EXE、证书安装或网络中间人修改。**
+
+## Desktop 原始响应帧检测（只读实验）
+
+某些 Codex Desktop 版本的 SQLite TRACE 日志除了 `server reported model` 之外，还可能包含带有 `response.created` / `response.completed` 的 SSE/WebSocket 事件。这个实验只检查**日志级别和记录数量**，不返回模型名、响应 ID、请求内容、文件路径或令牌，避免把其他任务的流量误认为当前 HRTF 任务。
+
+```powershell
+pwsh -NoProfile -File .\scripts\Diagnose-DesktopFrames.ps1
+# 需要明确诊断某一会话时，可以用任务的 UUID：
+pwsh -NoProfile -File .\scripts\Diagnose-DesktopFrames.ps1 -ThreadId <任务 UUID>
+```
+
+扫描默认为每个库最近 5,000 条日志，支持 `-AsJson`、`-DbPath`、`-CodexHome` 和 `-MaxRows` 参数。脚本使用系统 Windows SQLite 以只读方式统计，另从 Desktop 日志中提取有限的 stdio/websocket 连接标签（不会显示原始日志行）。原始帧可能并未记录，或已被自动淘汰；计数为 0 并不证明服务器没有返回模型。即使计数大于 0，若缺少轮次与响应 ID 的严格关联，也只能标记为“未归属的模型帧候选”，不能当作实际模型证明。
+
+**传输层 6 条候选细分（只读实验）**：运行 scripts/Diagnose-TransportCandidates.ps1，可以按固定的日志模块分别统计 `response.completed` 文本、model / response 键名、接收/发送方向、完成事件缺失的错误提示及已标注的 ThreadId。SQL 只返回整数统计，不输出原始日志正文、模型名称或响应 ID。由于错误消息也可能包含 response.completed，任何单项计数都不能作为服务器实际模型的证据；无 ThreadId 时不得将日志归因到 HRTF 会话。
+
+## Response ID 严格关联（实验，纯只读）
+
+在 Codex rollout 中出现 `token_usage_record` 时，会包含真实响应的 `response_id` 和 `turn_id`。新脚本 `scripts/Correlate-DesktopModels.ps1` 使用该记录与 SQLite 中解析出的 `response.completed.response.id` 做精确关联，只有来源与会话均满足安全条件才显示 `response.model`。不输出响应正文、响应 ID 或密钥，不修改运行中的 Codex 或数据库。若无可关联记录仍显示未验证。
+
+```powershell
+pwsh -NoProfile -File .\scripts\Correlate-DesktopModels.ps1 -ThreadId 01a1b04f-6977-71c0-8933-54dcb779f053 -MaxRows 20000
+```
+
+**运行中 rollout 文件的共享读取（修复）**：Codex Desktop 仍在追加 JSONL 时，普通 `File.ReadLines` 可能因 Windows 共享模式不兼容而抛出占用异常。严格关联脚本改为只读 `FileStream` 并指定 `FileShare.ReadWrite | FileShare.Delete`，允许写入进程继续工作；如果 Codex 使用真正的独占锁，返回 `RolloutReadable=false` 和 `sharing_or_access_denied`，不会尝试终止进程、绕过锁或把其他会话的模型当成当前模型。合成测试同时覆盖并发追加与独占锁两种情况。
+
+**时间/来源覆盖诊断**：严格 Response ID 关联工具会额外输出目标会话 token_usage_record 的首末时间、最近完成事件候选的首末时间、SQLite 最近 N 条的保留时间窗，以及候选的其他会话标记数、无会话标记数和来源进程分区数量。这些数字用于判定为何关联为零；不会输出其他会话/进程的 ID 或响应正文。仅时间重叠不等于 Response ID 匹配，不能据此宣称 HRTF 真实模型。
 
 ## 模型名称校验
 

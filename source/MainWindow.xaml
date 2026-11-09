@@ -5,7 +5,9 @@
         Title="Codex Usage" Icon="Assets/AppIcon.ico" Width="350" Height="400" MinWidth="270" MinHeight="320"
         WindowStartupLocation="CenterScreen" WindowStyle="None" ResizeMode="CanResizeWithGrip"
         Background="{StaticResource BgBrush}" Foreground="{StaticResource TextBrush}"
-        UseLayoutRounding="True" SnapsToDevicePixels="True" TextOptions.TextFormattingMode="Display">
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        FontFamily="Segoe UI, Microsoft YaHei UI"
+        TextOptions.TextFormattingMode="Ideal" TextOptions.TextRenderingMode="Grayscale">
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="30" ResizeBorderThickness="8" CornerRadius="12" GlassFrameThickness="0"/>
     </shell:WindowChrome.WindowChrome>
@@ -31,6 +33,17 @@
                             <MenuItem x:Name="Font175Item" Header="175%" IsCheckable="True"/>
                             <MenuItem x:Name="Font200Item" Header="200%" IsCheckable="True"/>
                         </MenuItem>
+                        <MenuItem Header="字体渲染（可即时切换）">
+                            <MenuItem x:Name="TextSharpItem" Header="屏幕锐利 · ClearType + 像素对齐" IsCheckable="True" />
+                            <MenuItem x:Name="TextNaturalItem" Header="自然字形 · ClearType + Ideal" IsCheckable="True" />
+                            <MenuItem x:Name="TextGrayItem" Header="无彩边 · 灰度抗锯齿" IsCheckable="True" />
+                            <MenuItem x:Name="TextSoftItem" Header="柔和灰度 · 减弱网格提示（可能略模糊）" IsCheckable="True" />
+                        </MenuItem>
+                        <MenuItem x:Name="VariableFontItem" Header="Windows 11 Segoe UI Variable 字体" IsCheckable="True" />
+                        <MenuItem x:Name="DpiInfoItem" Header="显示缩放：检测中" IsEnabled="False" />
+                        <Separator/>
+                        <MenuItem x:Name="ModelDiagnosticItem" Header="诊断服务器模型来源（只读）"
+                                  ToolTip="仅统计本地日志的数量，不读取认证信息或上传任务内容"/>
                         <MenuItem x:Name="ResetLayoutItem" Header="恢复默认布局（窗口及字体）"/>
                         <MenuItem Header="Ctrl + / − 调整字体；Ctrl + 0 重置" IsEnabled="False"/>
                     </ContextMenu></Button.ContextMenu>

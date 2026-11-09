@@ -1,4 +1,4 @@
-# Codex Token Monitor 1.3.8-ui.1
+# Codex Token Monitor 1.3.8-ui.5
 
 [中文说明](README.md)
 
@@ -25,6 +25,24 @@ The task selector expands with the window; long content scrolls. Requested
 and server-reported model names are shown in the widget when the local logs
 contain usable evidence; a missing server report remains unverified. The task
 summary includes a copy-model-evidence button.
+
+Text rendering (ui.2): Ideal font metrics, Segoe UI with Microsoft YaHei UI fallback, and grayscale antialiasing by default to avoid ClearType color fringes. Toggle `平滑字体（灰度抗锯齿）` off in the options menu to use ClearType instead. The detail view no longer scales metric text via a fixed-height Viewbox. The app declares PerMonitorV2 DPI awareness to reduce OS bitmap stretching on mixed-DPI displays. Actual multi-monitor behavior should be verified on Windows.
+
+Text rendering (ui.3): Four switchable presets in the `...` menu:
+`Sharp` (ClearType + Display metrics + DIP font sizes rounded to physical
+pixels), `Natural` (ClearType + Ideal), `Gray` (grayscale + Ideal),
+and `Soft` (grayscale + Ideal + Animated hinting). Soft is an
+opt-in tradeoff; Microsoft's documentation warns animated hinting can
+reduce static text quality. Segoe UI Variable is preferred on Windows 11,
+with Segoe UI and Microsoft YaHei UI fallbacks. The menu also shows the
+actual window DPI and the independent font-scale preference. Existing
+`GrayscaleText` preferences migrate safely. No algorithm can create
+additional physical screen pixels; compare presets at native resolution
+and without browser/screenshot rescaling.
+
+Model provenance diagnostics (ui.4): If the main widget shows `Unverified`, open `... → 诊断服务器模型来源（只读）`. This reports only the count of SQLite logs and server-model reports associated with the current thread, not log body text, prompts or credentials. It also looks for `logs_2.sqlite` under the Codex data root, `sqlite/`, `log/`, and `CODEX_SQLITE_HOME` when provided to the monitor. Custom SQLite or log directory paths can be supplied via `--model-log=...`. A missing server-model record cannot be guessed from the requested model; no automatic network interception or Codex configuration changes are performed.
+
+Log rollover resilience (ui.5): Current Codex SQLite logging keeps at most 1,000 rows per thread, further limited by about 10 MiB of content. While the selected turn has no confirmed server-model record, the monitor checks the existing SQLite log read-only every 3 seconds and retains verified evidence for the same exact turn/request in process memory. It never carries evidence across turns, sessions or changed requested models. Diagnostic notes when the per-thread log cap is reached. This does not modify Codex logs or enable missing server headers and cannot restore deleted records. Periodic checks stop after evidence is found or when the monitor exits.
 
 ## Run
 
