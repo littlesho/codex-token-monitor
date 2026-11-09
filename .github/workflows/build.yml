@@ -26,6 +26,9 @@ jobs:
         run: |
           $result = ./scripts/Diagnose-DesktopFrames.ps1 -AsJson | ConvertFrom-Json
           if (-not $result.ObservedAtUtc -or $null -eq $result.ExistingDatabases) { throw 'Frame diagnostics returned invalid data' }
+      - name: Synthetic transport candidate classification
+        shell: pwsh
+        run: ./scripts/Test-TransportCandidates.ps1
       - name: Build
         shell: pwsh
         run: ./scripts/Build.ps1

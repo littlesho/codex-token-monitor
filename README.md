@@ -95,6 +95,8 @@ pwsh -NoProfile -File .\scripts\Diagnose-DesktopFrames.ps1 -ThreadId <任务 UUI
 
 扫描默认为每个库最近 5,000 条日志，支持 `-AsJson`、`-DbPath`、`-CodexHome` 和 `-MaxRows` 参数。脚本使用系统 Windows SQLite 以只读方式统计，另从 Desktop 日志中提取有限的 stdio/websocket 连接标签（不会显示原始日志行）。原始帧可能并未记录，或已被自动淘汰；计数为 0 并不证明服务器没有返回模型。即使计数大于 0，若缺少轮次与响应 ID 的严格关联，也只能标记为“未归属的模型帧候选”，不能当作实际模型证明。
 
+**传输层 6 条候选细分（只读实验）**：运行 scripts/Diagnose-TransportCandidates.ps1，可以按固定的日志模块分别统计 `response.completed` 文本、model / response 键名、接收/发送方向、完成事件缺失的错误提示及已标注的 ThreadId。SQL 只返回整数统计，不输出原始日志正文、模型名称或响应 ID。由于错误消息也可能包含 response.completed，任何单项计数都不能作为服务器实际模型的证据；无 ThreadId 时不得将日志归因到 HRTF 会话。
+
 ## 模型名称校验
 
 “所选”读取当前轮次 `turn_context.model` 或 `thread_settings_applied.thread_settings.model`。“返回”仅接受明确的 `model_reroute` 事件或运行日志中的 `server reported model` 记录。通过 Windows 自带 SQLite 只读查询 Codex 根目录下的 `logs_2.sqlite` 与 `sqlite/logs_2.sqlite`，限定当前主任务、同一轮次及当前模型请求时间之后的最新可用回报。
