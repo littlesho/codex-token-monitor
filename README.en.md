@@ -1,4 +1,4 @@
-# Codex Token Monitor
+# Codex Token Monitor 1.3.8-ui.1
 
 [中文说明](README.md)
 
@@ -14,6 +14,17 @@ It reads local session logs and optional model-name evidence from a read-only
 SQLite connection. It does not read authentication files, modify Codex data, or
 make network requests. Task names may appear on screen; use synthetic data for
 public screenshots.
+
+## UI improvements in this fork
+
+The main widget and task summary can be resized by dragging their window edges.
+Font size is independent of window size: choose 100%, 125% (default), 150%,
+175%, or 200% via the `...` menu. Shortcuts are Ctrl+Plus, Ctrl+Minus,
+and Ctrl+0 to reset. Main/detail sizes and font preferences are remembered.
+The task selector expands with the window; long content scrolls. Requested
+and server-reported model names are shown in the widget when the local logs
+contain usable evidence; a missing server report remains unverified. The task
+summary includes a copy-model-evidence button.
 
 ## Run
 

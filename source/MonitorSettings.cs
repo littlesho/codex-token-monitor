@@ -7,6 +7,13 @@ public sealed class MonitorSettings
 {
     public bool Topmost { get; set; }
     public bool ShowRemainingQuota { get; set; }
+    // Window geometry is in WPF device-independent pixels (DIPs).
+    public double? Width { get; set; }
+    public double? Height { get; set; }
+    public double? DetailWidth { get; set; }
+    public double? DetailHeight { get; set; }
+    // 1.0 = 100% of original WPF font sizes. Previous settings remain valid.
+    public double FontScale { get; set; } = 1.25;
     public double? Left { get; set; }
     public double? Top { get; set; }
     private static string SettingsPath => new MonitorPaths().SettingsPath;

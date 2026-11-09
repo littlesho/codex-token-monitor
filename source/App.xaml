@@ -1,7 +1,17 @@
 <Application x:Class="CodexTokenMonitor.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:sys="clr-namespace:System;assembly=mscorlib">
     <Application.Resources>
+        <!-- Dynamic resources update both windows, popups, and templates at runtime. -->
+        <sys:Double x:Key="FontSize_8">8</sys:Double>
+        <sys:Double x:Key="FontSize_9">9</sys:Double>
+        <sys:Double x:Key="FontSize_10">10</sys:Double>
+        <sys:Double x:Key="FontSize_11">11</sys:Double>
+        <sys:Double x:Key="FontSize_13">13</sys:Double>
+        <sys:Double x:Key="FontSize_14">14</sys:Double>
+        <sys:Double x:Key="FontSize_15">15</sys:Double>
+        <sys:Double x:Key="FontSize_16">16</sys:Double>
         <SolidColorBrush x:Key="BgBrush" Color="#F7F8FA"/>
         <SolidColorBrush x:Key="PanelBrush" Color="#FFFFFF"/>
         <SolidColorBrush x:Key="PanelAltBrush" Color="#F1F3F6"/>

@@ -12,6 +12,13 @@ namespace CodexTokenMonitor;
 public partial class MainWindow : Window
 {
     private const int RecentConversationLimit = 5;
+    private const double DefaultWidth = 350;
+    private const double DefaultHeight = 400;
+    private const double DefaultFontScale = 1.25;
+    private static readonly double[] FontScales = [1.0, 1.25, 1.5, 1.75, 2.0];
+    private static readonly int[] FontSizes = [8, 9, 10, 11, 13, 14, 15, 16];
+    private double _fontScale = DefaultFontScale;
+    private readonly DispatcherTimer _geometrySaveDebounce = new() { Interval = TimeSpan.FromMilliseconds(600) };
     private readonly SessionParser _parser = new();
     private readonly DispatcherTimer _eventDebounce = new() { Interval = TimeSpan.FromMilliseconds(750) };
     private readonly DispatcherTimer _expiryTimer = new();
@@ -50,6 +57,22 @@ public partial class MainWindow : Window
         _startMonitoring = startTimer;
         InitializeComponent();
         _expiryTimer.Tick += (_, _) => RefreshQuotaPresentation();
+        _geometrySaveDebounce.Tick += (_, _) => { _geometrySaveDebounce.Stop(); if (_startMonitoring && !_closed) SaveSettings(); };
+        // Restore geometry only in real UI mode; previews/smoke tests stay deterministic.
+        if (_startMonitoring)
+        {
+            Width = ValidDimension(_settings.Width, DefaultWidth, 270, SystemParameters.VirtualScreenWidth);
+            Height = ValidDimension(_settings.Height, DefaultHeight, 320, SystemParameters.VirtualScreenHeight);
+        }
+        SetFontScale(_startMonitoring ? _settings.FontScale : DefaultFontScale, persist: false);
+        SizeChanged += (_, _) => DebounceGeometrySave();
+        LocationChanged += (_, _) => DebounceGeometrySave();
+        ResetLayoutItem.Click += (_, _) => { SetFontScale(DefaultFontScale); Width = DefaultWidth; Height = DefaultHeight; SaveSettings(); };
+        Font100Item.Click += (_, _) => SetFontScale(1.0);
+        Font125Item.Click += (_, _) => SetFontScale(1.25);
+        Font150Item.Click += (_, _) => SetFontScale(1.5);
+        Font175Item.Click += (_, _) => SetFontScale(1.75);
+        Font200Item.Click += (_, _) => SetFontScale(2.0);
         Topmost = _settings.Topmost;
         if (_startMonitoring && _settings.Left is { } left && _settings.Top is { } top
             && left >= SystemParameters.VirtualScreenLeft && left + Width <= SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth
@@ -70,6 +93,13 @@ public partial class MainWindow : Window
         RefreshButton.Click += async (_, _) => await ManualRefreshAsync();
         PreviewKeyDown += async (_, e) =>
         {
+            if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
+            {
+                var key = e.Key == Key.System ? e.SystemKey : e.Key;
+                if (key is Key.Add or Key.OemPlus) { ChangeFontStep(1); e.Handled = true; return; }
+                if (key is Key.Subtract or Key.OemMinus) { ChangeFontStep(-1); e.Handled = true; return; }
+                if (key is Key.D0 or Key.NumPad0) { SetFontScale(DefaultFontScale); e.Handled = true; return; }
+            }
             if (e.Key == Key.F5 && !_refreshing) { e.Handled = true; await ManualRefreshAsync(); }
         };
         ModelSelector.SelectionChanged += (_, _) => SelectModelFromDropdown();
@@ -93,10 +123,58 @@ public partial class MainWindow : Window
             await RefreshAsync(true);
             if (_startMonitoring && !_closed) StartFileWatcher();
         };
-        Closed += (_, _) => { _closed = true; _expiryTimer.Stop(); StopFileWatcher(); _details?.Close(); if (_startMonitoring) SaveSettings(); };
+        Closed += (_, _) => { _closed = true; _expiryTimer.Stop(); _geometrySaveDebounce.Stop(); StopFileWatcher(); _details?.Close(); if (_startMonitoring) SaveSettings(); };
     }
 
-    private void SaveSettings() { _settings.Topmost = Topmost; _settings.Left = Left; _settings.Top = Top; _settings.Save(); }
+    private static double ValidDimension(double? proposed, double fallback, double minimum, double screenSize)
+    {
+        var max = Math.Max(minimum, screenSize);
+        return proposed is { } value && double.IsFinite(value) ? Math.Clamp(value, minimum, max) : Math.Clamp(fallback, minimum, max);
+    }
+
+    private void DebounceGeometrySave()
+    {
+        if (!_startMonitoring || !IsLoaded || _closed) return;
+        _geometrySaveDebounce.Stop();
+        _geometrySaveDebounce.Start();
+    }
+
+    private void SaveSettings()
+    {
+        _settings.Topmost = Topmost;
+        _settings.Left = Left;
+        _settings.Top = Top;
+        _settings.Width = Width;
+        _settings.Height = Height;
+        _settings.FontScale = _fontScale;
+        _settings.Save();
+    }
+
+    private void SetFontScale(double requested, bool persist = true)
+    {
+        var value = double.IsFinite(requested) ? requested : DefaultFontScale;
+        _fontScale = FontScales.OrderBy(scale => Math.Abs(scale - value)).First();
+        foreach (var size in FontSizes)
+            Application.Current.Resources[$"FontSize_{size}"] = (double)size * _fontScale;
+        FontSize = 11 * _fontScale;
+        // Layout is auto-height with scrolling; also keep a sensible minimum area for 3 metrics.
+        MinWidth = Math.Min(Math.Max(270, SystemParameters.WorkArea.Width), Math.Max(270, 260 * _fontScale));
+        MinHeight = Math.Min(Math.Max(320, SystemParameters.WorkArea.Height), Math.Max(320, 300 * _fontScale));
+        if (Width < MinWidth) Width = MinWidth;
+        if (Height < MinHeight) Height = MinHeight;
+        Font100Item.IsChecked = _fontScale == 1;
+        Font125Item.IsChecked = _fontScale == 1.25;
+        Font150Item.IsChecked = _fontScale == 1.5;
+        Font175Item.IsChecked = _fontScale == 1.75;
+        Font200Item.IsChecked = _fontScale == 2;
+        if (persist && _startMonitoring) SaveSettings();
+    }
+
+    private void ChangeFontStep(int direction)
+    {
+        var index = Array.FindIndex(FontScales, scale => scale == _fontScale);
+        SetFontScale(FontScales[Math.Clamp(index + direction, 0, FontScales.Length - 1)]);
+    }
     private async Task ManualRefreshAsync()
     {
         if (_startMonitoring && _watcher is null) StartFileWatcher();
@@ -105,7 +183,25 @@ public partial class MainWindow : Window
     private void ShowDetails()
     {
         if (_currentData is null) return;
-        if (_details is null) { _details = new DetailWindow { Owner = this }; _details.Closed += (_, _) => _details = null; }
+        if (_details is null)
+        {
+            var details = new DetailWindow
+            {
+                Owner = this,
+                Width = ValidDimension(_settings.DetailWidth, Width, 270, SystemParameters.VirtualScreenWidth),
+                Height = ValidDimension(_settings.DetailHeight, Height, 320, SystemParameters.VirtualScreenHeight)
+            };
+            details.MinWidth = MinWidth;
+            details.MinHeight = MinHeight;
+            details.Closed += (_, _) =>
+            {
+                _settings.DetailWidth = details.Width;
+                _settings.DetailHeight = details.Height;
+                _details = null;
+                if (_startMonitoring) SaveSettings();
+            };
+            _details = details;
+        }
         _details.SetData(_currentData); _details.Show(); _details.Activate();
     }
 
@@ -354,6 +450,12 @@ public partial class MainWindow : Window
         DetailsButton.Content = $"任务概览 · 主模型{data.ModelCheck}";
         DetailsButton.Foreground = (Brush)FindResource(data.ModelCheck == "名称不同" ? "PurpleBrush" : data.ModelCheck == "名称一致" ? "TealBrush" : "TextBrush");
         DetailsButton.ToolTip = new ToolTip { Content = new TextBlock { Text = data.ModelCheckDetail, MaxWidth = 210, TextWrapping = TextWrapping.Wrap } };
+        var returnedModel = data.ModelEvidence?.ReturnedModel;
+        RoutingText.Text = string.IsNullOrWhiteSpace(returnedModel)
+            ? $"服务器返回模型：{data.ModelCheck}"
+            : $"请求 {data.RequestedModel} → 返回 {returnedModel}";
+        RoutingText.Foreground = (Brush)FindResource(data.ModelCheck == "名称不同" ? "PurpleBrush" : data.ModelCheck == "名称一致" ? "TealBrush" : "MutedBrush");
+        RoutingText.ToolTip = BoundedTip(data.ModelCheckDetail);
         var isNewSession = !string.Equals(_loadedSessionId, data.SessionId, StringComparison.Ordinal);
         if (isNewSession)
         {
@@ -615,6 +717,7 @@ public partial class MainWindow : Window
         {
             MatchesMainSize = detailCheckWindow.Width == Width && detailCheckWindow.Height == Height,
             FixedSize = detailCheckWindow.ResizeMode == ResizeMode.NoResize,
+            Resizable = detailCheckWindow.ResizeMode == ResizeMode.CanResizeWithGrip,
             AggregatesAllInput = detailCheckWindow.InputValue.Text == TokenFormatter.Compact(allRows.Sum(r => r.Uncached)),
             AggregatesAllCached = detailCheckWindow.CachedValue.Text == TokenFormatter.Compact(allRows.Sum(r => r.Cached)),
             AggregatesAllOutput = detailCheckWindow.OutputValue.Text == TokenFormatter.Compact(allRows.Sum(r => r.Output)),
@@ -713,11 +816,12 @@ public partial class MainWindow : Window
         var original = _selectedChoice!;
         var recentCount = ConversationSelector.Items.Count;
         var searchableCount = _searchChoices.Count;
-        panel.Measure(new Size(210, double.PositiveInfinity));
-        panel.Arrange(new Rect(0, 0, 210, panel.DesiredSize.Height));
+        var pickerWidth = Math.Max(210, ConversationSelector.ActualWidth);
+        panel.Measure(new Size(pickerWidth, double.PositiveInfinity));
+        panel.Arrange(new Rect(0, 0, pickerWidth, panel.DesiredSize.Height));
         panel.UpdateLayout();
-        var boundedWidth = Math.Abs(panel.ActualWidth - 210) <= 1 && panel.DesiredSize.Width <= Width;
-        var boundedHeight = panel.ActualHeight <= 220;
+        var boundedWidth = Math.Abs(panel.ActualWidth - pickerWidth) <= 1 && panel.DesiredSize.Width <= Math.Max(Width, pickerWidth);
+        var boundedHeight = panel.ActualHeight <= 335;
         _taskSearchBox!.Text = "__no_matching_task_94723__";
         var emptyResults = ConversationSelector.Items.Count == 0 && _selectedSessionPath == original.Path;
         _taskSearchBox.Text = original.SessionId.ToUpperInvariant();
@@ -805,11 +909,12 @@ public partial class MainWindow : Window
         ConversationSelector.ApplyTemplate();
         await OpenTaskSearchAsync();
         var picker = (FrameworkElement)ConversationSelector.Template.FindName("PickerPanel", ConversationSelector);
-        picker.Measure(new Size(210, double.PositiveInfinity));
-        RenderElement(picker, 210, Math.Ceiling(picker.DesiredSize.Height), Path.Combine(outputDirectory, "task-picker.png"));
+        var pickerWidth = Math.Max(210, ConversationSelector.ActualWidth);
+        picker.Measure(new Size(pickerWidth, double.PositiveInfinity));
+        RenderElement(picker, pickerWidth, Math.Ceiling(picker.DesiredSize.Height), Path.Combine(outputDirectory, "task-picker.png"));
         _taskSearchBox!.Text = "__no_matching_task_94723__";
-        picker.Measure(new Size(210, double.PositiveInfinity));
-        RenderElement(picker, 210, Math.Ceiling(picker.DesiredSize.Height), Path.Combine(outputDirectory, "task-picker-empty.png"));
+        picker.Measure(new Size(pickerWidth, double.PositiveInfinity));
+        RenderElement(picker, pickerWidth, Math.Ceiling(picker.DesiredSize.Height), Path.Combine(outputDirectory, "task-picker-empty.png"));
         _taskSearchBox.Clear();
         UpdateConversationSelector(_recentChoices.ToList());
         var details = new DetailWindow();

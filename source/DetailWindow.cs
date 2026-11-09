@@ -10,6 +10,15 @@ public partial class DetailWindow : Window
     {
         InitializeComponent();
         BackButton.Click += (_, _) => Close();
+        CopyModelButton.Click += (_, _) =>
+        {
+            var evidence = $"所选模型: {RequestedModelValue.Text}\n返回模型: {ReturnedModelValue.Text}\n{UpdatedText.Text}";
+            try { Clipboard.SetText(evidence); }
+            catch (System.Runtime.InteropServices.ExternalException)
+            {
+                MessageBox.Show(this, "剪贴板暂时不可用，请稍后重试。", "复制失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        };
         PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { Close(); e.Handled = true; } };
     }
     public void SetData(SessionSummary data)
