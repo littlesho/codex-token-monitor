@@ -349,7 +349,7 @@ if (OperatingSystem.IsWindows()) Test("Model log diagnosis and log-directory fal
     var found = ModelResponseLogReader.ReadLatest(dbRoot, mainId, "turn-1", "gpt-6-astra", at);
     Check(found?.ReturnedModel == "gpt-6-sol", "new log/ candidate not found");
     var diagnosed = ModelResponseLogReader.Diagnose(dbRoot, mainId, "turn-1", "gpt-6-astra", at);
-    Check(diagnosed.Contains("服务器模型报告 1 条") && diagnosed.Contains("当前任务日志 1 条"), "read-only diagnostics failed");
+    Check(diagnosed.Contains("服务端模型报告 1 条") && diagnosed.Contains("当前任务日志 1 条"), "read-only diagnostics failed");
     Check(before.SequenceEqual(File.ReadAllBytes(dbPath)), "diagnostics modified Codex logs");
 });
 Test("Quota display modes and stale snapshots", QuotaDisplayChecks.Run);
